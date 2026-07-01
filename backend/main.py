@@ -1,16 +1,27 @@
+import os
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from supabase import create_client
-import os
+from dotenv import load_dotenv
 
-# Initialize Supabase client
-# Make sure to set these in your environment variables
+# 1. Load environment variables from .env file
+load_dotenv()
+
+# 2. Initialize Supabase client
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+
+# Debugging: Uncomment the line below if you still get errors to see if values load
+# print(f"DEBUG: URL is {SUPABASE_URL}")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set in .env")
+
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = FastAPI()
 
+# Model for incoming check-in requests
 class CheckInRequest(BaseModel):
     court_id: int
     user_id: str
@@ -20,17 +31,10 @@ class CheckInRequest(BaseModel):
 
 @app.post("/checkin")
 async def check_in(request: CheckInRequest):
-    # The PostGIS query: checks if the court location is within 50 meters 
-    # of the user's provided coordinates.
-    query = """
-    SELECT id FROM courts 
-    WHERE id = :court_id 
-    AND ST_DWithin(location, ST_MakePoint(:user_lng, :user_lat)::geography, 50)
-    """
-    
-    # Execute the query via Supabase
+    # Call the database function to validate proximity using PostGIS
+    # This runs the RPC function we created in the SQL Editor
     response = supabase.rpc('check_court_proximity', {
-        'court_id': request.court_id,
+        'court_id_input': request.court_id,
         'user_lat': request.user_lat,
         'user_lng': request.user_lng
     }).execute()
