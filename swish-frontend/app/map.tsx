@@ -59,12 +59,18 @@ export default function Map() {
   }, []);
 
   // 2. Fetch Courts & Realtime
-  useEffect(() => {
+useEffect(() => {
     const fetchCourts = async () => {
-      const { data } = await supabase.from("courts").select("*");
+      const { data, error } = await supabase.from("courts").select("*");
+      if (error) {
+        console.error("Error fetching courts:", error);
+        return;
+      }
+      console.log("Courts fetched from Supabase:", data); // ADD THIS LINE
       if (data) setCourts(data as Court[]);
     };
     fetchCourts();
+    // ...
 
     const channel = supabase
       .channel("realtime-map")
