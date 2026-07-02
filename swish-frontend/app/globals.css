@@ -1,26 +1,189 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
+/*
+  Pro-Run Athletic design tokens, ported from DESIGN.md.
+  This app is a fixed "true dark" theme (not a light/dark toggle),
+  so colors are set once here rather than behind a media query.
+*/
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  /* Color tokens */
+  --color-surface: #131315;
+  --color-surface-dim: #131315;
+  --color-surface-bright: #39393b;
+  --color-surface-container-lowest: #0e0e10;
+  --color-surface-container-low: #1b1b1d;
+  --color-surface-container: #201f21;
+  --color-surface-container-high: #2a2a2c;
+  --color-surface-container-highest: #353437;
+  --color-surface-variant: #353437;
+  --color-on-surface: #e5e1e4;
+  --color-on-surface-variant: #e3bfb3;
+  --color-inverse-surface: #e5e1e4;
+  --color-inverse-on-surface: #303032;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-outline: #aa897f;
+  --color-outline-variant: #5b4138;
+  --color-surface-tint: #ffb59c;
+
+  --color-primary: #ffb59c;
+  --color-on-primary: #5c1900;
+  --color-primary-container: #ff5f1f;
+  --color-on-primary-container: #561700;
+  --color-inverse-primary: #ab3600;
+  --color-primary-fixed: #ffdbcf;
+  --color-primary-fixed-dim: #ffb59c;
+  --color-on-primary-fixed: #390c00;
+  --color-on-primary-fixed-variant: #832700;
+
+  --color-secondary: #c6c6c7;
+  --color-on-secondary: #2f3131;
+  --color-secondary-container: #454747;
+  --color-on-secondary-container: #b4b5b5;
+  --color-secondary-fixed: #e2e2e2;
+  --color-secondary-fixed-dim: #c6c6c7;
+  --color-on-secondary-fixed: #1a1c1c;
+  --color-on-secondary-fixed-variant: #454747;
+
+  --color-tertiary: #c8c5cb;
+  --color-on-tertiary: #303034;
+  --color-tertiary-container: #959398;
+  --color-on-tertiary-container: #2c2c30;
+  --color-tertiary-fixed: #e4e1e7;
+  --color-tertiary-fixed-dim: #c8c5cb;
+  --color-on-tertiary-fixed: #1b1b1f;
+  --color-on-tertiary-fixed-variant: #47464b;
+
+  --color-error: #ffb4ab;
+  --color-on-error: #690005;
+  --color-error-container: #93000a;
+  --color-on-error-container: #ffdad6;
+
+  --color-background: #131315;
+  --color-on-background: #e5e1e4;
+
+  /* Radius scale (from DESIGN.md `rounded`) */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.5rem;
+  --radius-full: 9999px;
+
+  /* Spacing scale (from DESIGN.md `spacing`) */
+  --spacing-container-margin: 20px;
+  --spacing-gutter: 16px;
+  --spacing-stack-sm: 8px;
+  --spacing-stack-md: 16px;
+  --spacing-stack-lg: 32px;
+
+  /* Font families, wired to next/font variables set in layout.tsx */
+  --font-headline: var(--font-oswald);
+  --font-body: var(--font-lexend);
+
+  /* Type scale (from DESIGN.md `typography`) */
+  --text-display-lg: 48px;
+  --text-display-lg--line-height: 56px;
+  --text-display-lg--letter-spacing: 0.02em;
+  --text-display-lg--font-weight: 700;
+
+  --text-headline-lg: 32px;
+  --text-headline-lg--line-height: 40px;
+  --text-headline-lg--letter-spacing: 0.01em;
+  --text-headline-lg--font-weight: 600;
+
+  --text-headline-lg-mobile: 28px;
+  --text-headline-lg-mobile--line-height: 34px;
+  --text-headline-lg-mobile--font-weight: 600;
+
+  --text-headline-md: 24px;
+  --text-headline-md--line-height: 32px;
+  --text-headline-md--font-weight: 500;
+
+  --text-body-lg: 18px;
+  --text-body-lg--line-height: 28px;
+  --text-body-lg--font-weight: 400;
+
+  --text-body-md: 16px;
+  --text-body-md--line-height: 24px;
+  --text-body-md--font-weight: 400;
+
+  --text-label-md: 14px;
+  --text-label-md--line-height: 20px;
+  --text-label-md--letter-spacing: 0.05em;
+  --text-label-md--font-weight: 600;
+
+  --text-label-sm: 12px;
+  --text-label-sm--line-height: 16px;
+  --text-label-sm--font-weight: 500;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-background);
+  color: var(--color-on-background);
+}
+
+/* Material Symbols: outlined by default, filled variant via .fill-icon */
+.material-symbols-outlined {
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+  font-size: 20px;
+  line-height: 1;
+}
+.fill-icon {
+  font-variation-settings: "FILL" 1, "wght" 400, "GRAD" 0, "opsz" 24;
+}
+
+/* Bottom-to-top gradient used under court card imagery for text legibility */
+.court-card-gradient {
+  background: linear-gradient(
+    to top,
+    rgba(18, 18, 20, 0.95) 0%,
+    rgba(18, 18, 20, 0.6) 40%,
+    transparent 100%
+  );
+}
+
+/* Pulsing ring behind "live" map markers */
+@keyframes marker-pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(255, 95, 31, 0.7);
+  }
+  70% {
+    transform: scale(1.1);
+    box-shadow: 0 0 0 15px rgba(255, 95, 31, 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(255, 95, 31, 0);
+  }
+}
+.live-marker {
+  animation: marker-pulse 2s infinite;
+}
+
+/* Dark-mode tinting for the (light-styled) MapLibre demo tiles */
+.map-dark-filter {
+  filter: grayscale(0.5) invert(0.9) brightness(0.9) contrast(0.9);
+}
+
+/* Slim dark scrollbar used across scrollable panels */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: var(--color-surface-container-low);
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--color-secondary-container);
+  border-radius: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary-container);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }

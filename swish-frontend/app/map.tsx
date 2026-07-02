@@ -1,72 +1,166 @@
-'use client';
+"use client";
 
-import { useEffect, useRef } from 'react';
-import maplibregl from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
-import { supabase } from '../lib/supabase';
+import { useEffect, useRef, useState } from "react";
+import maplibregl from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
+import { supabase } from "../lib/supabase";
+import Icon from "./Icon";
+import { checkIn } from "./checkin";
+import { isCourtFull, type Court } from "./courts";
 
 export default function Map() {
-  const mapContainer = useRef(null);
+  const mapContainer = useRef<HTMLDivElement | null>(null);
   const map = useRef<maplibregl.Map | null>(null);
+  const markersRef = useRef<maplibregl.Marker[]>([]);
 
+  const [courts, setCourts] = useState<Court[]>([]);
+  const [selectedCourt, setSelectedCourt] = useState<Court | null>(null);
+  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
+  const [checkingIn, setCheckingIn] = useState(false);
+  const [checkInMessage, setCheckInMessage] = useState("");
+
+  // 1. Initialize Map
   useEffect(() => {
-    // 1. Initialize MapLibre
+    if (!mapContainer.current) return;
+
     map.current = new maplibregl.Map({
-      container: mapContainer.current!,
-      style: 'https://demotiles.maplibre.org/style.json',
-      center: [151.15, -33.8], // Centered on Sydney area
+      container: mapContainer.current,
+      style: {
+        version: 8,
+        sources: {
+          "carto-dark": {
+            type: "raster",
+            tiles: ["https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"],
+            tileSize: 256,
+          },
+        },
+        layers: [
+          {
+            id: "carto-dark-layer",
+            type: "raster",
+            source: "carto-dark",
+            minzoom: 0,
+            maxzoom: 18,
+          },
+        ],
+      },
+      center: [151.15, -33.8], // Sydney
       zoom: 11,
     });
 
-    // 2. Fetch courts and render pins
-    const fetchAndRenderCourts = async () => {
-      const { data: courts, error } = await supabase.from('courts').select('*');
-      
-      if (error) {
-        console.error("Error fetching courts:", error);
-        return;
-      }
+    navigator.geolocation?.getCurrentPosition(
+      (pos) => setUserLocation([pos.coords.longitude, pos.coords.latitude]),
+      (err) => console.warn("Location denied:", err)
+    );
 
-      if (courts) {
-        // Defensive loop to handle location data
-        courts.forEach((court) => {
-          // Safely access coordinates (assuming court.location is a PostGIS GeoJSON object)
-          const lng = court.location?.coordinates?.[0];
-          const lat = court.location?.coordinates?.[1];
-
-          // Only render if we have valid coordinates
-          if (lng !== undefined && lat !== undefined) {
-            new maplibregl.Marker()
-              .setLngLat([lng, lat])
-              .setPopup(new maplibregl.Popup().setHTML(`
-                <h3>${court.name}</h3>
-                <p>Status: ${court.status}</p>
-              `))
-              .addTo(map.current!);
-          } else {
-            console.warn(`Court "${court.name}" has invalid or missing location data:`, court.location);
-          }
-        });
-      }
+    return () => {
+      map.current?.remove();
     };
+  }, []);
 
-    fetchAndRenderCourts();
+  // 2. Fetch Courts & Realtime
+  useEffect(() => {
+    const fetchCourts = async () => {
+      const { data } = await supabase.from("courts").select("*");
+      if (data) setCourts(data as Court[]);
+    };
+    fetchCourts();
 
-    // 3. Real-time subscription
     const channel = supabase
-      .channel('realtime-courts')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'courts' }, (payload) => {
-        console.log('Update received:', payload);
-        // UI refresh logic would go here
+      .channel("realtime-map")
+      .on("postgres_changes", { event: "*", schema: "public", table: "courts" }, () => {
+        fetchCourts(); // Force a clean refetch to keep data perfectly in sync
       })
       .subscribe();
 
-    // Cleanup on unmount
     return () => {
-      map.current?.remove();
       supabase.removeChannel(channel);
     };
   }, []);
 
-  return <div ref={mapContainer} style={{ width: '100%', height: '100vh' }} />;
+  // 3. Render Markers
+  useEffect(() => {
+    if (!map.current) return;
+
+    // Clear old markers before drawing new ones
+    markersRef.current.forEach((m) => m.remove());
+    markersRef.current = [];
+
+    courts.forEach((court) => {
+      const coords = court.location?.coordinates;
+      if (!coords || coords.length < 2) return;
+      
+      const [lng, lat] = coords;
+
+      // Using native MapLibre markers for guaranteed rendering
+      const marker = new maplibregl.Marker({ color: "#ff5f1f" })
+        .setLngLat([lng, lat])
+        .addTo(map.current!);
+
+      marker.getElement().addEventListener("click", (e) => {
+        e.stopPropagation();
+        setSelectedCourt(court);
+        setCheckInMessage("");
+        map.current?.flyTo({ center: [lng, lat], zoom: 14 });
+      });
+
+      markersRef.current.push(marker);
+    });
+  }, [courts]);
+
+  // 4. Handle Check In
+  const handleCheckIn = async () => {
+    if (!selectedCourt) return;
+    setCheckingIn(true);
+    setCheckInMessage("");
+    
+    const result = await checkIn(selectedCourt.id, userLocation);
+    
+    setCheckingIn(false);
+    setCheckInMessage(result.ok ? "Checked in successfully!" : result.message);
+  };
+
+  return (
+    // STRICT absolute positioning forces the container to exist
+    <div className="absolute inset-0 w-full h-full bg-background overflow-hidden">
+      
+      <div ref={mapContainer} className="absolute inset-0 w-full h-full z-0 map-dark-filter" />
+
+      {/* Simplified Side Panel */}
+      {selectedCourt && (
+        <div className="absolute bottom-0 right-0 w-full md:w-96 md:h-full bg-surface-container border-l border-surface-variant z-10 flex flex-col shadow-2xl p-6">
+          <div className="flex justify-between items-start mb-6">
+            <h2 className="font-headline text-headline-md text-on-surface">{selectedCourt.name}</h2>
+            <button 
+              onClick={() => setSelectedCourt(null)} 
+              className="w-10 h-10 flex items-center justify-center bg-surface-variant rounded-full hover:brightness-110"
+            >
+              <Icon name="close" />
+            </button>
+          </div>
+
+          <div className="mb-6 p-4 bg-surface-container-high rounded-xl border border-surface-variant">
+            <p className="font-body text-label-sm text-secondary uppercase mb-1">Current Status</p>
+            <p className={`font-bold text-headline-md ${isCourtFull(selectedCourt) ? "text-error" : "text-green-400"}`}>
+              {selectedCourt.status || "Unknown"}
+            </p>
+          </div>
+
+          <button
+            onClick={handleCheckIn}
+            disabled={checkingIn || isCourtFull(selectedCourt)}
+            className="w-full bg-primary-container text-on-primary-container font-body py-4 rounded-lg font-black uppercase disabled:opacity-50 hover:brightness-110"
+          >
+            {checkingIn ? "Checking In..." : isCourtFull(selectedCourt) ? "Court is Full" : "Check In"}
+          </button>
+          
+          {checkInMessage && (
+            <p className="mt-4 text-center font-body text-label-md text-secondary">
+              {checkInMessage}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
