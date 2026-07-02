@@ -14,33 +14,54 @@ export default function Map() {
     map.current = new maplibregl.Map({
       container: mapContainer.current!,
       style: 'https://demotiles.maplibre.org/style.json',
-      center: [151.2093, -33.8688], // Sydney
-      zoom: 12,
+      center: [151.15, -33.8], // Centered on Sydney area
+      zoom: 11,
     });
 
-    // 2. Fetch initial courts
-    const fetchCourts = async () => {
-      const { data } = await supabase.from('courts').select('*');
-      if (data) console.log("Initial courts loaded:", data);
+    // 2. Fetch courts and render pins
+    const fetchAndRenderCourts = async () => {
+      const { data: courts, error } = await supabase.from('courts').select('*');
+      
+      if (error) {
+        console.error("Error fetching courts:", error);
+        return;
+      }
+
+      if (courts) {
+        // Defensive loop to handle location data
+        courts.forEach((court) => {
+          // Safely access coordinates (assuming court.location is a PostGIS GeoJSON object)
+          const lng = court.location?.coordinates?.[0];
+          const lat = court.location?.coordinates?.[1];
+
+          // Only render if we have valid coordinates
+          if (lng !== undefined && lat !== undefined) {
+            new maplibregl.Marker()
+              .setLngLat([lng, lat])
+              .setPopup(new maplibregl.Popup().setHTML(`
+                <h3>${court.name}</h3>
+                <p>Status: ${court.status}</p>
+              `))
+              .addTo(map.current!);
+          } else {
+            console.warn(`Court "${court.name}" has invalid or missing location data:`, court.location);
+          }
+        });
+      }
     };
 
-    fetchCourts();
+    fetchAndRenderCourts();
 
-    // 3. DAY 4: Set up Real-time subscription
-    // This listens for any UPDATE event on the 'courts' table
+    // 3. Real-time subscription
     const channel = supabase
       .channel('realtime-courts')
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'courts' },
-        (payload) => {
-          console.log('Change received!', payload);
-          // In Day 5, we will add logic here to update pin colors!
-        }
-      )
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'courts' }, (payload) => {
+        console.log('Update received:', payload);
+        // UI refresh logic would go here
+      })
       .subscribe();
 
-    // Cleanup: remove map and channel when component unmounts
+    // Cleanup on unmount
     return () => {
       map.current?.remove();
       supabase.removeChannel(channel);
