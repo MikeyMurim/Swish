@@ -4,8 +4,12 @@ export type CheckInResult =
   | { ok: true }
   | { ok: false; reason: "not-signed-in" | "no-location" | "error"; message: string };
 
-// We added userLocation to enforce the geofence
-export async function checkIn(courtId: number, userLocation: [number, number] | null): Promise<CheckInResult> {
+// UPDATED: Added `status: string` parameter
+export async function checkIn(
+  courtId: number, 
+  userLocation: [number, number] | null,
+  status: string
+): Promise<CheckInResult> {
   const { data: userData } = await supabase.auth.getUser();
 
   if (!userData?.user) {
@@ -41,7 +45,7 @@ export async function checkIn(courtId: number, userLocation: [number, number] | 
         user_id: userData.user.id,
         user_lat: lat,
         user_lng: lng,
-        occupancy_status: "live"
+        occupancy_status: status // Passing the dynamic status from the modal
       }),
     });
 

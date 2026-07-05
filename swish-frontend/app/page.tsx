@@ -7,6 +7,7 @@ import Icon from "./Icon";
 import { checkIn } from "./checkin";
 import { isCourtFull, statusTone, type Court } from "./courts";
 import { haversineMiles } from "./geo";
+import CheckInModal from "./CheckInModal"; // IMPORT MODAL
 
 const DISTANCE_OPTIONS = [
   { label: "Any distance", value: null },
@@ -22,13 +23,14 @@ export default function HomeFeed() {
   const [checkInMessage, setCheckInMessage] = useState<Record<number, string>>({});
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [distanceFilter, setDistanceFilter] = useState<number | null>(null);
+  
+  // NEW STATE: Tracks which court the modal is open for
+  const [modalCourt, setModalCourt] = useState<Court | null>(null);
 
   useEffect(() => {
     const fetchCourts = async () => {
       const { data, error } = await supabase.from("courts").select("*");
-      if (error) {
-        console.error("Error fetching courts:", error);
-      }
+      if (error) console.error("Error fetching courts:", error);
       if (data) setCourts(data as Court[]);
       setLoading(false);
     };
@@ -61,9 +63,7 @@ export default function HomeFeed() {
   useEffect(() => {
     navigator.geolocation?.getCurrentPosition(
       (pos) => setUserLocation([pos.coords.longitude, pos.coords.latitude]),
-      () => {
-        /* denied or unavailable, distance filter just won't apply */
-      }
+      () => {}
     );
   }, []);
 
@@ -71,17 +71,17 @@ export default function HomeFeed() {
     if (distanceFilter === null || !userLocation) return courts;
     return courts.filter((court) => {
       const coords = court.location?.coordinates;
-      if (!coords) return true; // can't filter what we can't place, so show it
+      if (!coords) return true;
       return haversineMiles(userLocation, coords) <= distanceFilter;
     });
   }, [courts, distanceFilter, userLocation]);
 
-const handleCheckIn = async (courtId: number) => {
+  // UPDATED: Now receives the "status" from the modal
+  const executeCheckIn = async (courtId: number, status: string) => {
     setCheckingIn((c) => ({ ...c, [courtId]: true }));
     setCheckInMessage((c) => ({ ...c, [courtId]: "" }));
 
-    // UPDATED: Passing the userLocation state to the backend
-    const result = await checkIn(courtId, userLocation);
+    const result = await checkIn(courtId, userLocation, status);
 
     setCheckingIn((c) => ({ ...c, [courtId]: false }));
     if (!result.ok) {
@@ -104,9 +104,6 @@ const handleCheckIn = async (courtId: number) => {
             <h2 className="font-headline text-headline-md uppercase tracking-tight">
               Courts Nearby
             </h2>
-
-            {/* This actually filters, using real coordinates and the browser's
-                geolocation. If location access is denied, it just shows everything. */}
             <div className="relative">
               <select
                 value={distanceFilter ?? ""}
@@ -147,7 +144,6 @@ const handleCheckIn = async (courtId: number) => {
                   className="group relative bg-surface-container overflow-hidden rounded-xl border border-surface-variant/50 hover:border-primary/50 transition-all duration-300 shadow-lg"
                 >
                   <div className="relative h-72 w-full overflow-hidden">
-                    {/* No image_url column exists, so this is always the placeholder */}
                     <div className="absolute inset-0 bg-gradient-to-br from-surface-container-high to-surface-container-low flex items-center justify-center">
                       <Icon name="sports_basketball" className="text-6xl! text-surface-variant" />
                     </div>
@@ -185,15 +181,12 @@ const handleCheckIn = async (courtId: number) => {
                     <div className="mt-4 flex flex-col gap-2">
                       <div className="flex gap-3">
                         <button
-                          onClick={() => handleCheckIn(court.id)}
-                          disabled={full || checkingIn[court.id]}
-                          className={`flex-1 font-body text-label-md py-3 rounded-lg uppercase font-black active:scale-95 transition-all ${
-                            full
-                              ? "bg-surface-variant text-on-surface cursor-not-allowed opacity-50"
-                              : "bg-primary-container text-on-primary-container hover:brightness-110 disabled:opacity-60"
-                          }`}
+                          // UPDATED: Now opens the modal instead of instantly firing checkIn
+                          onClick={() => setModalCourt(court)}
+                          disabled={checkingIn[court.id]}
+                          className="flex-1 font-body text-label-md py-3 rounded-lg uppercase font-black active:scale-95 transition-all bg-primary-container text-on-primary-container hover:brightness-110 disabled:opacity-60"
                         >
-                          {full ? "Full" : checkingIn[court.id] ? "Checking in..." : "Check In"}
+                          {checkingIn[court.id] ? "Processing..." : "Update Status"}
                         </button>
                       </div>
                       {checkInMessage[court.id] && (
@@ -211,6 +204,15 @@ const handleCheckIn = async (courtId: number) => {
       </main>
 
       <BottomNav />
+
+      {/* RENDER MODAL IF A COURT IS SELECTED */}
+      {modalCourt && (
+        <CheckInModal
+          court={modalCourt}
+          onClose={() => setModalCourt(null)}
+          onConfirm={(status) => executeCheckIn(modalCourt.id, status)}
+        />
+      )}
     </div>
   );
 }
