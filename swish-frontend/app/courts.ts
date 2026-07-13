@@ -1,8 +1,8 @@
-
 export type Court = {
   id: number;
   name: string;
   status: string | null;
+  address?: string | null;
   updated_at?: string | null;
 
   location: {

@@ -7,6 +7,7 @@ import { supabase } from "../lib/supabase";
 import Icon from "./Icon";
 import { checkIn } from "./checkin";
 import { isCourtFull, type Court } from "./courts";
+import CheckInModal from "./CheckInModal";
 
 export default function Map() {
   const mapContainer = useRef<HTMLDivElement | null>(null);
@@ -18,6 +19,7 @@ export default function Map() {
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [checkingIn, setCheckingIn] = useState(false);
   const [checkInMessage, setCheckInMessage] = useState("");
+  const [showCheckInModal, setShowCheckInModal] = useState(false);
 
   // 1. Initialize Map
   useEffect(() => {
@@ -59,18 +61,16 @@ export default function Map() {
   }, []);
 
   // 2. Fetch Courts & Realtime
-useEffect(() => {
+  useEffect(() => {
     const fetchCourts = async () => {
       const { data, error } = await supabase.from("courts").select("*");
       if (error) {
         console.error("Error fetching courts:", error);
         return;
       }
-      console.log("Courts fetched from Supabase:", data); // ADD THIS LINE
       if (data) setCourts(data as Court[]);
     };
     fetchCourts();
-    // ...
 
     const channel = supabase
       .channel("realtime-map")
@@ -95,7 +95,7 @@ useEffect(() => {
     courts.forEach((court) => {
       const coords = court.location?.coordinates;
       if (!coords || coords.length < 2) return;
-      
+
       const [lng, lat] = coords;
 
       // Using native MapLibre markers for guaranteed rendering
@@ -114,14 +114,14 @@ useEffect(() => {
     });
   }, [courts]);
 
-  // 4. Handle Check In
-  const handleCheckIn = async () => {
+  // 4. Handle Check In (now takes the status chosen in the modal)
+  const handleCheckIn = async (status: string) => {
     if (!selectedCourt) return;
     setCheckingIn(true);
     setCheckInMessage("");
-    
-    const result = await checkIn(selectedCourt.id, userLocation);
-    
+
+    const result = await checkIn(selectedCourt.id, userLocation, status);
+
     setCheckingIn(false);
     setCheckInMessage(result.ok ? "Checked in successfully!" : result.message);
   };
@@ -129,16 +129,20 @@ useEffect(() => {
   return (
     // STRICT absolute positioning forces the container to exist
     <div className="absolute inset-0 w-full h-full bg-background overflow-hidden">
-      
       <div ref={mapContainer} className="absolute inset-0 w-full h-full z-0 map-dark-filter" />
 
       {/* Simplified Side Panel */}
       {selectedCourt && (
         <div className="absolute bottom-0 right-0 w-full md:w-96 md:h-full bg-surface-container border-l border-surface-variant z-10 flex flex-col shadow-2xl p-6">
           <div className="flex justify-between items-start mb-6">
-            <h2 className="font-headline text-headline-md text-on-surface">{selectedCourt.name}</h2>
-            <button 
-              onClick={() => setSelectedCourt(null)} 
+            <div>
+              <h2 className="font-headline text-headline-md text-on-surface">{selectedCourt.name}</h2>
+              {selectedCourt.address && (
+                <p className="font-body text-label-sm text-secondary mt-1">{selectedCourt.address}</p>
+              )}
+            </div>
+            <button
+              onClick={() => setSelectedCourt(null)}
               className="w-10 h-10 flex items-center justify-center bg-surface-variant rounded-full hover:brightness-110"
             >
               <Icon name="close" />
@@ -153,19 +157,27 @@ useEffect(() => {
           </div>
 
           <button
-            onClick={handleCheckIn}
+            onClick={() => setShowCheckInModal(true)}
             disabled={checkingIn || isCourtFull(selectedCourt)}
             className="w-full bg-primary-container text-on-primary-container font-body py-4 rounded-lg font-black uppercase disabled:opacity-50 hover:brightness-110"
           >
             {checkingIn ? "Checking In..." : isCourtFull(selectedCourt) ? "Court is Full" : "Check In"}
           </button>
-          
+
           {checkInMessage && (
             <p className="mt-4 text-center font-body text-label-md text-secondary">
               {checkInMessage}
             </p>
           )}
         </div>
+      )}
+
+      {showCheckInModal && selectedCourt && (
+        <CheckInModal
+          court={selectedCourt}
+          onClose={() => setShowCheckInModal(false)}
+          onConfirm={handleCheckIn}
+        />
       )}
     </div>
   );
