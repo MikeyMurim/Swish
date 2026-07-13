@@ -1,18 +1,28 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Icon from "./Icon";
+import { useAuth } from "../lib/useAuth";
+import { supabase } from "../lib/supabase";
 
-// Only Feed and Map exist as real pages right now, so that's all that's here.
+// Only Feed, Map, and Add Court exist as real pages right now, so that's all that's here.
 // Add Bookings/Profile back once those pages actually exist.
 const NAV_ITEMS = [
   { href: "/", label: "Feed", icon: "dynamic_feed" },
   { href: "/map-view", label: "Map", icon: "map" },
+  { href: "/add-court", label: "Add", icon: "add_location_alt" },
 ];
 
 export function SideNav() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, loading } = useAuth();
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    router.push("/");
+  };
 
   return (
     <aside className="hidden md:flex flex-col h-full w-64 fixed left-0 top-0 bg-surface-container border-r border-surface-variant shadow-lg p-stack-md z-40 overflow-y-auto">
@@ -44,6 +54,29 @@ export function SideNav() {
           );
         })}
       </nav>
+
+      <div className="pt-stack-md border-t border-surface-variant/50">
+        {loading ? null : user ? (
+          <div className="flex flex-col gap-2">
+            <p className="font-body text-label-sm text-secondary truncate">{user.email}</p>
+            <button
+              onClick={handleSignOut}
+              className="flex items-center gap-2 font-body text-label-md text-secondary-fixed-dim hover:text-primary transition-colors"
+            >
+              <Icon name="logout" className="text-lg" />
+              Sign out
+            </button>
+          </div>
+        ) : (
+          <Link
+            href="/login"
+            className="flex items-center gap-2 font-body text-label-md text-secondary-fixed-dim hover:text-primary transition-colors"
+          >
+            <Icon name="login" className="text-lg" />
+            Sign in
+          </Link>
+        )}
+      </div>
     </aside>
   );
 }

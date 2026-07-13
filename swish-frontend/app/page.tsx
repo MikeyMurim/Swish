@@ -7,7 +7,7 @@ import Icon from "./Icon";
 import { checkIn } from "./checkin";
 import { isCourtFull, statusTone, type Court } from "./courts";
 import { haversineMiles } from "./geo";
-import CheckInModal from "./CheckInModal"; // IMPORT MODAL
+import CheckInModal from "./CheckInModal";
 
 const DISTANCE_OPTIONS = [
   { label: "Any distance", value: null },
@@ -23,8 +23,6 @@ export default function HomeFeed() {
   const [checkInMessage, setCheckInMessage] = useState<Record<number, string>>({});
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [distanceFilter, setDistanceFilter] = useState<number | null>(null);
-  
-  // NEW STATE: Tracks which court the modal is open for
   const [modalCourt, setModalCourt] = useState<Court | null>(null);
 
   useEffect(() => {
@@ -76,7 +74,6 @@ export default function HomeFeed() {
     });
   }, [courts, distanceFilter, userLocation]);
 
-  // UPDATED: Now receives the "status" from the modal
   const executeCheckIn = async (courtId: number, status: string) => {
     setCheckingIn((c) => ({ ...c, [courtId]: true }));
     setCheckInMessage((c) => ({ ...c, [courtId]: "" }));
@@ -166,9 +163,16 @@ export default function HomeFeed() {
 
                   <div className="absolute bottom-0 left-0 right-0 p-6 flex flex-col gap-2">
                     <div className="flex justify-between items-end">
-                      <h3 className="font-headline text-headline-md text-on-surface uppercase leading-none">
-                        {court.name}
-                      </h3>
+                      <div>
+                        <h3 className="font-headline text-headline-md text-on-surface uppercase leading-none">
+                          {court.name}
+                        </h3>
+                        {court.address && (
+                          <p className="font-body text-label-sm text-secondary mt-1 normal-case">
+                            {court.address}
+                          </p>
+                        )}
+                      </div>
                       <a
                         href={`/map-view?court=${court.id}`}
                         className="font-body text-label-sm text-secondary hover:text-primary flex items-center gap-1 shrink-0"
@@ -181,7 +185,6 @@ export default function HomeFeed() {
                     <div className="mt-4 flex flex-col gap-2">
                       <div className="flex gap-3">
                         <button
-                          // UPDATED: Now opens the modal instead of instantly firing checkIn
                           onClick={() => setModalCourt(court)}
                           disabled={checkingIn[court.id]}
                           className="flex-1 font-body text-label-md py-3 rounded-lg uppercase font-black active:scale-95 transition-all bg-primary-container text-on-primary-container hover:brightness-110 disabled:opacity-60"
@@ -205,7 +208,6 @@ export default function HomeFeed() {
 
       <BottomNav />
 
-      {/* RENDER MODAL IF A COURT IS SELECTED */}
       {modalCourt && (
         <CheckInModal
           court={modalCourt}
