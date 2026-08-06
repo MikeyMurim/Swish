@@ -9,13 +9,18 @@ import { checkIn } from "./checkin";
 import { isCourtFull, type Court } from "./courts";
 import CheckInModal from "./CheckInModal";
 
+type MapCourt = Court & {
+  latitude: number;
+  longitude: number;
+};
+
 export default function Map() {
   const mapContainer = useRef<HTMLDivElement | null>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
 
-  const [courts, setCourts] = useState<Court[]>([]);
-  const [selectedCourt, setSelectedCourt] = useState<Court | null>(null);
+  const [courts, setCourts] = useState<MapCourt[]>([]);
+  const [selectedCourt, setSelectedCourt] = useState<MapCourt | null>(null);
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [checkingIn, setCheckingIn] = useState(false);
   const [checkInMessage, setCheckInMessage] = useState("");
@@ -63,12 +68,14 @@ export default function Map() {
   // 2. Fetch Courts & Realtime
   useEffect(() => {
     const fetchCourts = async () => {
-      const { data, error } = await supabase.from("courts").select("*");
+      // PostGIS geography values are returned as encoded spatial data by a
+      // normal select. The RPC converts them to marker-ready coordinates.
+      const { data, error } = await supabase.rpc("get_courts_for_map");
       if (error) {
         console.error("Error fetching courts:", error);
         return;
       }
-      if (data) setCourts(data as Court[]);
+      if (data) setCourts(data as MapCourt[]);
     };
     fetchCourts();
 
@@ -93,10 +100,8 @@ export default function Map() {
     markersRef.current = [];
 
     courts.forEach((court) => {
-      const coords = court.location?.coordinates;
-      if (!coords || coords.length < 2) return;
-
-      const [lng, lat] = coords;
+      const { longitude: lng, latitude: lat } = court;
+      if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
 
       // Using native MapLibre markers for guaranteed rendering
       const marker = new maplibregl.Marker({ color: "#ff5f1f" })

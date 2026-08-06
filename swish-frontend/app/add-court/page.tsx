@@ -6,7 +6,7 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/useAuth";
-import { geocodeAddress } from "../../lib/geocode";
+import { geocodeAddress, searchAddresses, type GeocodeResult } from "../../lib/geocode";
 import { SideNav, BottomNav } from "../NavShell";
 import Icon from "../Icon";
 
@@ -20,6 +20,8 @@ export default function AddCourtPage() {
 
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
+  const [addressSuggestions, setAddressSuggestions] = useState<GeocodeResult[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [lat, setLat] = useState<number | null>(null);
   const [lng, setLng] = useState<number | null>(null);
   const [geocoding, setGeocoding] = useState(false);
@@ -59,6 +61,27 @@ export default function AddCourtPage() {
       zoom: 10,
     });
   }, [user]);
+
+  useEffect(() => {
+    const query = address.trim();
+    if (query.length < 3) {
+      return;
+    }
+
+    // Nominatim's public endpoint permits roughly one request a second.
+    const timer = window.setTimeout(async () => {
+      setSuggestionsLoading(true);
+      try {
+        setAddressSuggestions(await searchAddresses(query));
+      } catch {
+        setAddressSuggestions([]);
+      } finally {
+        setSuggestionsLoading(false);
+      }
+    }, 1000);
+
+    return () => window.clearTimeout(timer);
+  }, [address]);
 
   const placeMarker = (lngVal: number, latVal: number) => {
     if (!map.current) return;
@@ -110,6 +133,16 @@ export default function AddCourtPage() {
     }
   };
 
+  const selectAddress = (result: GeocodeResult) => {
+    setAddress(result.displayName);
+    setAddressSuggestions([]);
+    setLat(result.lat);
+    setLng(result.lng);
+    setNotice(`Found: ${result.displayName}. Drag the pin if it's not quite right.`);
+    placeMarker(result.lng, result.lat);
+    map.current?.flyTo({ center: [result.lng, result.lat], zoom: 16 });
+  };
+
   const useMyLocation = () => {
     setError("");
     navigator.geolocation?.getCurrentPosition(
@@ -140,12 +173,12 @@ export default function AddCourtPage() {
 
     setSubmitting(true);
 
-    // Supabase / PostGIS accepts a WKT string for a geography(Point) column,
-    // so no RPC function is needed for a plain insert like this.
+    // The deployed courts table stores a GeoJSON point in its JSONB location
+    // column. Keeping this shape is what lets the map read the new pin.
     const { error: insertError } = await supabase.from("courts").insert({
       name: name.trim(),
       address: address.trim() || null,
-      location: `POINT(${lng} ${lat})`,
+      location: { type: "Point", coordinates: [lng, lat] },
       status: "Empty",
     });
 
@@ -197,11 +230,17 @@ export default function AddCourtPage() {
 
             <div>
               <label className="font-body text-label-sm text-secondary uppercase block mb-1">Address</label>
-              <div className="flex gap-2">
+              <div className="relative flex gap-2">
                 <input
                   value={address}
-                  onChange={(e) => setAddress(e.target.value)}
+                  onChange={(e) => {
+                    setAddress(e.target.value);
+                    setAddressSuggestions([]);
+                    setSuggestionsLoading(false);
+                    setError("");
+                  }}
                   placeholder="e.g. 1 Cook Rd, Centennial Park NSW"
+                  autoComplete="off"
                   className="flex-1 bg-surface-container-high border border-surface-variant rounded-lg px-4 py-3 text-on-surface font-body outline-none focus:border-primary-container"
                 />
                 <button
@@ -213,6 +252,24 @@ export default function AddCourtPage() {
                   {geocoding ? <Icon name="sync" className="animate-spin" /> : <Icon name="search" />}
                   Find
                 </button>
+                {(suggestionsLoading || addressSuggestions.length > 0) && (
+                  <div className="absolute z-20 top-full left-0 right-16 mt-1 overflow-hidden rounded-lg border border-surface-variant bg-surface-container-high shadow-xl">
+                    {suggestionsLoading ? (
+                      <p className="px-4 py-3 font-body text-label-sm text-secondary">Finding addresses...</p>
+                    ) : (
+                      addressSuggestions.map((suggestion) => (
+                        <button
+                          key={`${suggestion.lng}-${suggestion.lat}`}
+                          type="button"
+                          onClick={() => selectAddress(suggestion)}
+                          className="w-full px-4 py-3 text-left font-body text-label-sm text-on-surface hover:bg-surface-variant transition-colors border-b border-surface-variant/40 last:border-b-0"
+                        >
+                          {suggestion.displayName}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 

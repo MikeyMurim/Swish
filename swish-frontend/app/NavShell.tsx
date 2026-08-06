@@ -6,12 +6,11 @@ import Icon from "./Icon";
 import { useAuth } from "../lib/useAuth";
 import { supabase } from "../lib/supabase";
 
-// Only Feed, Map, and Add Court exist as real pages right now, so that's all that's here.
-// Add Bookings/Profile back once those pages actually exist.
 const NAV_ITEMS = [
   { href: "/", label: "Feed", icon: "dynamic_feed" },
   { href: "/map-view", label: "Map", icon: "map" },
   { href: "/add-court", label: "Add", icon: "add_location_alt" },
+  { href: "/profile", label: "Profile", icon: "account_circle" },
 ];
 
 export function SideNav() {

@@ -5,9 +5,10 @@ import { supabase } from "../lib/supabase";
 import { SideNav, BottomNav } from "./NavShell";
 import Icon from "./Icon";
 import { checkIn } from "./checkin";
-import { isCourtFull, statusTone, type Court } from "./courts";
+import { statusTone, type Court } from "./courts";
 import { haversineMiles } from "./geo";
 import CheckInModal from "./CheckInModal";
+import { useAuth } from "../lib/useAuth";
 
 const DISTANCE_OPTIONS = [
   { label: "Any distance", value: null },
@@ -17,6 +18,7 @@ const DISTANCE_OPTIONS = [
 ];
 
 export default function HomeFeed() {
+  const { user } = useAuth();
   const [courts, setCourts] = useState<Court[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkingIn, setCheckingIn] = useState<Record<number, boolean>>({});
@@ -24,6 +26,7 @@ export default function HomeFeed() {
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [distanceFilter, setDistanceFilter] = useState<number | null>(null);
   const [modalCourt, setModalCourt] = useState<Court | null>(null);
+  const [favouriteIds, setFavouriteIds] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     const fetchCourts = async () => {
@@ -59,6 +62,16 @@ export default function HomeFeed() {
   }, []);
 
   useEffect(() => {
+    if (!user) return;
+
+    supabase
+      .from("favourite_courts")
+      .select("court_id")
+      .eq("user_id", user.id)
+      .then(({ data }) => setFavouriteIds(new Set((data ?? []).map((row) => row.court_id))));
+  }, [user]);
+
+  useEffect(() => {
     navigator.geolocation?.getCurrentPosition(
       (pos) => setUserLocation([pos.coords.longitude, pos.coords.latitude]),
       () => {}
@@ -88,6 +101,27 @@ export default function HomeFeed() {
       setTimeout(() => {
         setCheckInMessage((c) => ({ ...c, [courtId]: "" }));
       }, 3000);
+    }
+  };
+
+  const toggleFavourite = async (courtId: number) => {
+    if (!user) {
+      setCheckInMessage((current) => ({ ...current, [courtId]: "Sign in to save favourite courts." }));
+      return;
+    }
+
+    const isFavourite = favouriteIds.has(courtId);
+    const { error } = isFavourite
+      ? await supabase.from("favourite_courts").delete().eq("court_id", courtId).eq("user_id", user.id)
+      : await supabase.from("favourite_courts").insert({ court_id: courtId, user_id: user.id });
+
+    if (!error) {
+      setFavouriteIds((current) => {
+        const next = new Set(current);
+        if (isFavourite) next.delete(courtId);
+        else next.add(courtId);
+        return next;
+      });
     }
   };
 
@@ -121,49 +155,31 @@ export default function HomeFeed() {
           </div>
         </header>
 
-        <div className="max-w-5xl mx-auto px-container-margin md:px-8 mt-stack-md grid grid-cols-1 md:grid-cols-2 gap-gutter">
+        <div className="max-w-3xl mx-auto px-container-margin md:px-8 mt-stack-md flex flex-col gap-4">
           {loading ? (
-            <div className="col-span-full text-center text-secondary py-10 animate-pulse font-body">
+            <div className="text-center text-secondary py-10 animate-pulse font-body">
               Loading courts near you...
             </div>
           ) : visibleCourts.length === 0 ? (
-            <div className="col-span-full text-center text-secondary py-10 font-body">
+            <div className="text-center text-secondary py-10 font-body">
               No courts found.
             </div>
           ) : (
             visibleCourts.map((court) => {
-              const full = isCourtFull(court);
               const tone = statusTone(court.status);
 
               return (
                 <article
                   key={court.id}
-                  className="group relative bg-surface-container overflow-hidden rounded-xl border border-surface-variant/50 hover:border-primary/50 transition-all duration-300 shadow-lg"
+                  className="bg-surface-container rounded-xl border border-surface-variant/50 hover:border-primary/50 transition-all duration-300 shadow-lg p-5"
                 >
-                  <div className="relative h-72 w-full overflow-hidden">
-                    <div className="absolute inset-0 bg-gradient-to-br from-surface-container-high to-surface-container-low flex items-center justify-center">
-                      <Icon name="sports_basketball" className="text-6xl! text-surface-variant" />
+                  <div className="flex items-start gap-4">
+                    <div className="shrink-0 rounded-xl bg-surface-container-high p-3">
+                      <Icon name="sports_basketball" className="text-3xl! text-primary" />
                     </div>
-                    <div className="absolute inset-0 court-card-gradient" />
-
-                    <div className="absolute top-4 left-4 flex gap-2">
-                      <span
-                        className={`font-body text-label-sm px-3 py-1 rounded-full uppercase font-bold border ${
-                          tone === "live"
-                            ? "bg-primary-container text-on-primary-container border-transparent animate-pulse"
-                            : tone === "full"
-                            ? "bg-surface-container-highest/80 text-error border-error/30 backdrop-blur-sm"
-                            : "bg-surface-container-highest/80 text-primary border-primary/20 backdrop-blur-sm"
-                        }`}
-                      >
-                        {court.status ?? "Unknown"}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="absolute bottom-0 left-0 right-0 p-6 flex flex-col gap-2">
-                    <div className="flex justify-between items-end">
-                      <div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
                         <h3 className="font-headline text-headline-md text-on-surface uppercase leading-none">
                           {court.name}
                         </h3>
@@ -172,17 +188,30 @@ export default function HomeFeed() {
                             {court.address}
                           </p>
                         )}
+                        <p className="font-body text-label-sm text-secondary mt-2">
+                          Added by {court.added_by || "the Swish community"}
+                        </p>
+                        </div>
+                        <span
+                          className={`font-body text-label-sm px-3 py-1 rounded-full uppercase font-bold border ${
+                            tone === "live"
+                              ? "bg-primary-container text-on-primary-container border-transparent animate-pulse"
+                              : tone === "full"
+                              ? "bg-surface-container-highest text-error border-error/30"
+                              : "bg-surface-container-highest text-primary border-primary/20"
+                          }`}
+                        >
+                          {court.status ?? "Unknown"}
+                        </span>
                       </div>
                       <a
                         href={`/map-view?court=${court.id}`}
-                        className="font-body text-label-sm text-secondary hover:text-primary flex items-center gap-1 shrink-0"
+                        className="mt-3 font-body text-label-sm text-secondary hover:text-primary flex items-center gap-1"
                       >
                         <Icon name="location_on" className="text-sm!" />
                         View on map
                       </a>
-                    </div>
-
-                    <div className="mt-4 flex flex-col gap-2">
+                      <div className="mt-4 flex flex-col gap-2">
                       <div className="flex gap-3">
                         <button
                           onClick={() => setModalCourt(court)}
@@ -191,12 +220,24 @@ export default function HomeFeed() {
                         >
                           {checkingIn[court.id] ? "Processing..." : "Update Status"}
                         </button>
+                        <button
+                          onClick={() => toggleFavourite(court.id)}
+                          aria-label={favouriteIds.has(court.id) ? "Remove from favourites" : "Add to favourites"}
+                          className={`w-12 rounded-lg border transition-colors ${
+                            favouriteIds.has(court.id)
+                              ? "border-primary bg-primary-container text-on-primary-container"
+                              : "border-surface-variant text-secondary hover:text-primary"
+                          }`}
+                        >
+                          <Icon name="favorite" filled={favouriteIds.has(court.id)} />
+                        </button>
                       </div>
                       {checkInMessage[court.id] && (
                         <p className="font-body text-label-sm text-secondary">
                           {checkInMessage[court.id]}
                         </p>
                       )}
+                      </div>
                     </div>
                   </div>
                 </article>

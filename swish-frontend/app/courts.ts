@@ -3,6 +3,7 @@ export type Court = {
   name: string;
   status: string | null;
   address?: string | null;
+  added_by?: string | null;
   updated_at?: string | null;
 
   location: {
