@@ -60,7 +60,7 @@ export async function checkIn(
     }
 
     return { ok: true };
-  } catch (err) {
+  } catch {
     return { ok: false, reason: "error", message: "Failed to connect to the validation server." };
   }
 }

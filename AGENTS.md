@@ -5,7 +5,7 @@
 Swish is a Sydney public-basketball-court discovery MVP. It answers a simple
 question for players: *is there space at a court before I leave home?*
 
-The product has three main capabilities:
+The product has four main capabilities:
 
 - Publicly browse courts in a card feed or on a live map.
 - Sign in with email and password, then add a court by searching an address,
@@ -13,6 +13,8 @@ The product has three main capabilities:
 - Report a court as `live` (active) or `full` when physically within 50 metres
   of it. The location check belongs to the backend/database rather than being
   trusted to the browser.
+- Save courts as favourites and edit a profile (display name, avatar URL)
+  once signed in.
 
 This is an MVP with a deliberately small codebase. The root `README.md`
 describes the original architecture and goals; this file describes the code as
@@ -22,24 +24,27 @@ it exists now.
 
 ```
 Swish/
-+-- Agents.md                    # This guide and project-wide guardrails
++-- AGENTS.md                    # This guide and project-wide guardrails
 +-- README.md                    # Product overview and initial technical choices
 +-- schema.sql                   # Early/bootstrap PostGIS schema (not a migration system)
++-- migrations/                  # SQL changes to apply to an existing Supabase database
 +-- docs/
-|   `-- supabase-context.md      # Exported live Supabase schema/RLS reference
+|   `-- supabase-context.md      # Hand-maintained live Supabase schema/RLS reference
 +-- backend/
 |   +-- main.py                  # FastAPI geofence-validation service
+|   +-- requirements.txt         # Backend Python dependencies
 |   +-- .env                     # Local backend credentials; never commit/share
-|   `-- venv/                    # Local Python virtual environment; generated
+|   `-- venv/                    # Local Python virtual environment; generated, gitignored
 `-- swish-frontend/              # Next.js 16 App Router client
     +-- app/                     # Pages and UI components
     +-- lib/                     # Supabase, auth, and geocoding helpers
-    +-- public/                  # Stock Next.js SVG assets (currently unused)
     `-- package.json             # Frontend scripts and dependencies
 ```
 
-There are no committed migrations or automated tests at present. Do not treat
-`backend/venv`, `node_modules`, or `__pycache__` as source files.
+There are no automated tests at present. `migrations/` holds hand-written SQL
+patches, not a full migration system — apply them manually to an existing
+Supabase project in filename order. Do not treat `backend/venv`,
+`node_modules`, or `__pycache__` as source files; they're gitignored.
 
 ## Architecture and data flow
 
@@ -76,11 +81,12 @@ interactive product screens are client components (`"use client"`).
 | `app/map.tsx` | Creates the MapLibre map, loads and redraws court markers, subscribes to Realtime court changes, shows a selected court panel, and begins check-in. |
 | `app/add-court/page.tsx` | Auth-protected court-creation form with Nominatim address lookup, current-location option, and draggable MapLibre marker. Inserts into `courts` directly. |
 | `app/login/page.tsx` | Email/password sign-in and sign-up. New accounts use Supabase email confirmation and return to `/login`. |
+| `app/profile/page.tsx` | Authenticated profile editing (`display_name`, `avatar_url` on Supabase Auth user metadata) and a list of the user's favourite courts. |
 | `app/NavShell.tsx` | Desktop sidebar and mobile bottom navigation; displays auth state and signs out. |
 | `app/CheckInModal.tsx` | Chooses the report status (`live` or `full`) and confirms the request. |
 | `app/checkin.ts` | Shared check-in client. Requires an authenticated Supabase user and browser location, then calls FastAPI. |
 | `app/courts.ts` | `Court` UI type and status helpers. Court coordinates are GeoJSON order: `[longitude, latitude]`. |
-| `app/geo.ts` | Haversine straight-line distance helper (despite the UI labels being kilometres). `directionsUrl` is presently unused. |
+| `app/geo.ts` | Haversine straight-line distance helper (despite the UI labels being kilometres). |
 | `app/Icon.tsx` | Thin wrapper for Material Symbols icons. |
 | `lib/supabase.ts` | Browser Supabase client, created from public environment variables. |
 | `lib/useAuth.ts` | Auth hook using `getSession` and `onAuthStateChange`. |
@@ -172,21 +178,27 @@ call the API from a browser.
 ## Supabase and database
 
 Read `docs/supabase-context.md` **before modifying any database query,
-authentication, API behavior, RLS policy, or data model**. It is the project
-reference for the deployed schema and policies, even though the exported file
-contains repeated sections and should be treated as a snapshot rather than a
-migration source.
+authentication, API behavior, RLS policy, or data model**. It is a
+hand-maintained reference for the deployed schema and policies — update it
+whenever they change, rather than letting it drift.
 
 The observed deployed `courts` schema includes `id`, `name`, `status`,
 `location`, `updated_at`, `address`, and creator/audit columns. Its documented
 RLS allows public reads and allows authenticated inserts when
-`auth.uid() = created_by`. The UI expects `location` returned in GeoJSON-like
-form (`{ coordinates: [lng, lat] }`) and inserts location as PostGIS WKT:
-`POINT(lng lat)`.
+`auth.uid() = created_by`. The UI reads and writes `location` as a GeoJSON
+Point (`{ type: "Point", coordinates: [lng, lat] }`) stored in a JSONB
+column — see `docs/supabase-context.md` for a note on a possible `added_by`
+column type mismatch between the raw schema export and the contributor
+migration that's worth confirming against the live database.
 
 The observed `sessions` table holds a court reference, a user ID, and a
 timestamp. Its documented policy permits authenticated users to insert rows
 only for themselves and permits public reads.
+
+The `favourite_courts` table (added by
+`migrations/20260804_map_and_favourites.sql`) is a per-user join table
+powering the heart button on feed cards and the Profile page's saved-courts
+list. RLS restricts all rows to their owner.
 
 `schema.sql` is an older bootstrap sketch: it declares `courts.location` as
 `GEOGRAPHY(POINT)`, enables PostGIS/RLS, and creates minimal select/insert

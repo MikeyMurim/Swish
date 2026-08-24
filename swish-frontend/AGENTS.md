@@ -117,7 +117,7 @@ to the map. RLS restricts all favourite rows to their owner.
 ## Development checks
 
 From this folder, run `npm run lint`. Use `npm.cmd run lint` if PowerShell's
-execution policy blocks `npm`. Known warnings are the unused `err` in
-`app/checkin.ts`, the external Material Symbols font link in `app/layout.tsx`,
-and the plain external avatar `<img>` in `app/profile/page.tsx`. Also run
-`npx.cmd tsc --noEmit` to type-check without fetching external font assets.
+execution policy blocks `npm`. Known warnings are the external Material
+Symbols font link in `app/layout.tsx`, and the plain external avatar `<img>`
+in `app/profile/page.tsx`. Also run `npx.cmd tsc --noEmit` to type-check
+without fetching external font assets.

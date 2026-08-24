@@ -11,9 +11,6 @@ load_dotenv()
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
-# Debugging: Uncomment the line below if you still get errors to see if values load
-# print(f"DEBUG: URL is {SUPABASE_URL}")
-
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set in .env")
 

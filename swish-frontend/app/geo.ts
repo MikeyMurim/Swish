@@ -14,7 +14,3 @@ export function haversineMiles(
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 }
-
-export function directionsUrl([lng, lat]: [number, number]): string {
-  return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
-}
