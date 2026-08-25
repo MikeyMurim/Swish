@@ -31,7 +31,7 @@ async def check_in(request: CheckInRequest):
     # Call the database function to validate proximity using PostGIS
     # This runs the RPC function we created in the SQL Editor
     response = supabase.rpc('check_court_proximity', {
-        'court_id_input': request.court_id,
+        'court_id': request.court_id,
         'user_lat': request.user_lat,
         'user_lng': request.user_lng
     }).execute()

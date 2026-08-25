@@ -36,14 +36,19 @@ RLS policies:
 - **Authenticated users can add courts** (INSERT) — `WITH CHECK (auth.uid() = created_by)`
 
 Note: the app's insert code (`app/add-court/page.tsx`) does not set
-`created_by` explicitly, relying on the column default `auth.uid()`. The
-`added_by`/`added_by_name` columns exist in the deployed schema but are not
-currently populated by the frontend, which instead reads/writes `added_by`
-as a **text** field via the `20260804_add_court_contributors.sql` migration.
-This is a naming collision worth resolving: the live table appears to have
-*two* different `added_by`-shaped things (a UUID column from one migration
-path and a TEXT column from another). Reconcile which one is authoritative
-before making further schema changes.
+`created_by` explicitly, relying on the column default `auth.uid()`.
+
+Confirmed live via `information_schema` on 2026-08-24: `added_by` is
+**UUID** with no default, not the TEXT column
+`20260804_add_court_contributors.sql` tried to add — that migration's
+`ADD COLUMN IF NOT EXISTS added_by TEXT ...` silently no-op'd because a
+UUID column of the same name already existed. `add-court/page.tsx` never
+sets `added_by` on insert either way, so it's `NULL` on every court
+created through the current UI; the feed's "Added by \<email\>" display
+always falls back to "the Swish community". `created_by_email TEXT`
+also exists, unused, and looks like it may have been intended for this.
+Not yet fixed — needs a product decision on which column is
+authoritative before wiring it up.
 
 ### `sessions`
 
@@ -78,17 +83,41 @@ RLS policy:
 
 ## Database functions (RPCs)
 
-These are referenced by the frontend/backend but their definitions are not
-tracked as source in this repo — they exist only in the deployed Supabase
-project. Their bodies are defined in `migrations/` where available.
+- `check_court_proximity(court_id bigint, user_lat double precision, user_lng double precision) RETURNS TABLE(id integer)`
+  — used by `backend/main.py`'s `/checkin` endpoint. Returns the court row
+  when the caller is within 50m of it (falsy/empty otherwise). Defined in
+  `migrations/20260824_fix_check_court_proximity.sql`, which replaces an
+  earlier, broken version that was never tracked in this repo.
 
-- `check_court_proximity(court_id_input, user_lat, user_lng)` — used by
-  `backend/main.py`'s `/checkin` endpoint. Returns a falsy result when the
-  caller is more than 50m from the court. **Definition not found in this
-  repo's migrations** — if you have it, add it as a tracked migration.
-- `get_courts_for_map()` — defined in
-  `migrations/20260804_map_and_favourites.sql`. Extracts numeric
-  `longitude`/`latitude` from `courts.location`'s GeoJSON for MapLibre.
+  That earlier version had three independent live bugs, found and fixed
+  2026-08-24 by introspecting the deployed database directly (all three
+  confirmed empirically, not just read from source):
+  1. It called `ST_DWithin()` directly on `courts.location`, which is
+     `jsonb`, not `geography` — every call errored with
+     `function st_dwithin(jsonb, geography, integer) does not exist`.
+     `sessions` had 0 rows ever, confirming check-in had never worked.
+  2. It declared `RETURNS TABLE(id bigint)` but `courts.id` is `integer`
+     — masked by bug 1 until that was fixed, then surfaced as
+     `structure of query does not match function result type`.
+  3. `backend/main.py` called the RPC with a `court_id_input` parameter
+     key, but the function's real parameter is named `court_id` —
+     PostgREST returned 404 (function not found by that parameter set).
+     Fixed in `backend/main.py` alongside the SQL fix.
+
+  Two of the two legacy courts also had `location` stored as a raw WKT
+  string (`"POINT(lng lat)"`) instead of GeoJSON — leftover from before
+  `20260804_map_and_favourites.sql`'s repair step, which had its own bug
+  (see that migration file's history / the fix migration's comments) and
+  silently repaired zero rows. `20260824_fix_check_court_proximity.sql`
+  re-runs the repair correctly.
+
+- `get_courts_for_map() RETURNS TABLE(id bigint, name text, status text, address text, added_by text, updated_at timestamptz, longitude double precision, latitude double precision)`
+  — defined in `migrations/20260804_map_and_favourites.sql`. Extracts
+  numeric `longitude`/`latitude` from `courts.location`'s GeoJSON for
+  MapLibre. Its declared `added_by text` doesn't match the real column
+  type (`uuid`) — Postgres implicitly casts it, so it doesn't error, but
+  it's worth tightening if this function is ever edited again. Low
+  impact today since `app/map.tsx` doesn't render `added_by`.
 
 ## PostGIS / extensions
 
