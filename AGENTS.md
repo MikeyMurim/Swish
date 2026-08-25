@@ -61,10 +61,12 @@ the validation layer for a check-in. It loads its own Supabase credentials from
 `backend/.env` and calls the database function `check_court_proximity` before
 inserting into `sessions`.
 
-The database function itself is not defined in this repository, so it must
-exist in the deployed Supabase project for check-ins to work. Its expected
-inputs are `court_id_input`, `user_lat`, and `user_lng`; a falsy response means
-the caller is farther than 50 m from the court.
+The database function is defined in
+`migrations/20260824_fix_check_court_proximity.sql`. Its inputs are
+`court_id`, `user_lat`, and `user_lng`; an empty result means the caller is
+farther than 50 m from the court. An earlier, untracked version of this
+function had three live bugs that meant check-in never actually worked —
+see `docs/supabase-context.md` for the full history.
 
 ## Frontend
 
