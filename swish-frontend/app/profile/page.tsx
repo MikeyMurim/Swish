@@ -5,6 +5,7 @@ import Link from "next/link";
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/useAuth";
 import { SideNav, BottomNav } from "../NavShell";
+import AuthGateModal from "../AuthGateModal";
 import Icon from "../Icon";
 import { statusTone, type Court } from "../courts";
 
@@ -110,7 +111,29 @@ export default function ProfilePage() {
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center text-secondary font-body">Loading...</div>;
   if (!user) {
-    return <div className="min-h-screen flex items-center justify-center bg-background text-on-background font-body"><Link href="/login" className="text-primary font-bold uppercase">Sign in to view your profile</Link></div>;
+    return (
+      <div className="flex min-h-screen bg-background text-on-background">
+        <SideNav />
+        <main className="flex-1 md:ml-64 pb-24 md:pb-8 px-container-margin md:px-8 py-8">
+          <div className="max-w-4xl mx-auto flex flex-col gap-stack-lg blur-sm opacity-40 pointer-events-none select-none" aria-hidden="true">
+            <div className="flex items-center gap-stack-lg pb-stack-lg border-b border-surface-variant/50">
+              <div className="w-32 h-32 rounded-full bg-surface-container-high shrink-0" />
+              <div className="flex-1 flex flex-col gap-3">
+                <div className="h-8 w-48 bg-surface-container-high rounded" />
+                <div className="h-4 w-32 bg-surface-container-high rounded" />
+              </div>
+            </div>
+            <div className="h-32 bg-surface-container rounded-xl border border-surface-variant/50" />
+            <div className="h-48 bg-surface-container rounded-xl border border-surface-variant/50" />
+          </div>
+          <AuthGateModal
+            title="Log In to View Your Profile"
+            description="Sign in to edit your profile, see your recent courts, and connect with other hoopers."
+          />
+        </main>
+        <BottomNav />
+      </div>
+    );
   }
 
   const metadata = user.user_metadata ?? {};

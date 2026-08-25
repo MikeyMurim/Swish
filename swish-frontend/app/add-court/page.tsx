@@ -8,6 +8,7 @@ import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../lib/useAuth";
 import { geocodeAddress, searchAddresses, type GeocodeResult } from "../../lib/geocode";
 import { SideNav, BottomNav } from "../NavShell";
+import AuthGateModal from "../AuthGateModal";
 import Icon from "../Icon";
 
 export default function AddCourtPage() {
@@ -200,13 +201,21 @@ export default function AddCourtPage() {
 
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background text-on-background px-4 text-center">
-        <div>
-          <p className="font-body text-body-lg mb-4">Sign in to add a court.</p>
-          <a href="/login" className="font-body text-label-md text-primary uppercase font-bold">
-            Go to sign in
-          </a>
-        </div>
+      <div className="flex min-h-screen bg-background text-on-background">
+        <SideNav />
+        <main className="flex-1 md:ml-64 pb-24 md:pb-8 px-container-margin md:px-8 py-8">
+          <div className="max-w-md mx-auto flex flex-col gap-4 blur-sm opacity-40 pointer-events-none select-none" aria-hidden="true">
+            <div className="h-8 w-40 bg-surface-container-high rounded" />
+            <div className="h-12 w-full bg-surface-container-high rounded-lg" />
+            <div className="h-12 w-full bg-surface-container-high rounded-lg" />
+            <div className="h-64 w-full bg-surface-container-high rounded-xl" />
+          </div>
+          <AuthGateModal
+            title="Log In to Add a Court"
+            description="You need an account to add new courts to the map."
+          />
+        </main>
+        <BottomNav />
       </div>
     );
   }
