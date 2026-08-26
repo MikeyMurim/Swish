@@ -1,5 +1,5 @@
 import Icon from "./Icon";
-import { statusTone, type Court } from "./courts";
+import { effectiveStatusTone, type Court } from "./courts";
 
 export default function CourtMedia({
   court,
@@ -8,7 +8,7 @@ export default function CourtMedia({
   court: Court;
   className?: string;
 }) {
-  const tone = statusTone(court.status);
+  const tone = effectiveStatusTone(court);
   const isIndoor = court.court_type === "indoor";
 
   return (

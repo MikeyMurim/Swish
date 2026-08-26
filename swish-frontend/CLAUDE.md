@@ -48,19 +48,20 @@ Router.
 
 | Path/module | Responsibility |
 | --- | --- |
-| `app/page.tsx` | Home feed: fetches `courts`, subscribes to court + `court_joins` Realtime, applies the client-side distance filter, and renders Join Pick-up / Check-in / Favourite actions per card. |
+| `app/page.tsx` | Home feed: fetches `courts`, subscribes to court + `court_joins` Realtime, applies the client-side distance filter, and renders each card (Join Pick-up / Favourite, click-through to `CourtDetailModal`). Join Pick-up and the modal's "I'm hooping" both gate on auth via `AuthGateModal`. |
 | `app/map-view/page.tsx` | Server route shell rendering the client `Map` inside `Suspense`. |
 | `app/map.tsx` | MapLibre map: markers, indoor/outdoor filter chips, search, selected-court detail panel with Join/Check-in/Favourite/Copy-address actions. Fetches via the `get_courts_for_map` RPC, not a plain `select`. |
-| `app/add-court/page.tsx` | Auth-gated court creation: Nominatim address autocomplete, current-location option, draggable MapLibre pin, optional court photo upload to the `court-images` storage bucket, court type + capacity fields. |
+| `app/add-court/page.tsx` | Auth-gated court creation: Nominatim address autocomplete, current-location option, draggable MapLibre pin, optional court photo upload to the `court-images` storage bucket, court type + capacity + pricing (free/paid + amount) + water-availability fields. |
 | `app/login/page.tsx` | Email/password sign-in and sign-up (with display name + Guard/Forward "position"). New accounts confirm by email and land back on `/login` signed in. |
 | `app/profile/page.tsx` | Authenticated profile editing (`display_name`, `avatar_url` via Supabase Auth user metadata), Recent Courts (derived from `sessions`), and Favourite Courts. Gated by `AuthGateModal` when signed out. |
-| `app/AuthGateModal.tsx` | Modal overlay (not a full-page redirect) shown over a blurred, non-interactive page when a signed-out user hits an auth-gated route. |
+| `app/AuthGateModal.tsx` | Modal overlay shown when a signed-out user hits an auth-gated route (`add-court`, `profile`) or attempts a gated feed action (Join Pick-up, "I'm hooping"). Closes via `router.back()` by default; overlay callers (the feed) pass their own `onClose` instead, since there's no navigation to undo. |
 | `app/NavShell.tsx` | `SideNav` (desktop) and `BottomNav` (mobile); nav items, auth state, sign-out. |
-| `app/CheckInModal.tsx` | Chooses `live`/`full` and confirms the check-in request. |
-| `app/CourtMedia.tsx` | Court photo/placeholder header used by feed cards and the map detail panel; renders the indoor/outdoor badge and a "Live Now" badge. |
-| `app/checkin.ts` | Check-in client: requires an authenticated user and browser location, then POSTs to FastAPI. |
+| `app/CheckInModal.tsx` | Map's `live`/`full` check-in picker (map.tsx only — the feed uses `CourtDetailModal`'s headcount slider instead). |
+| `app/CourtDetailModal.tsx` | Feed's court detail popup (opened by clicking a card or Join Pick-up): hero photo, pricing/water info, an embedded MapLibre preview at the court's coordinates, and "I'm hooping" → a headcount slider (capped at `capacity`) that check-ins with that count. |
+| `app/CourtMedia.tsx` | Court photo/placeholder header used by feed cards and the map detail panel; renders the indoor/outdoor badge and a "Live Now" badge, using the expiry-aware `effectiveStatusTone`. |
+| `app/checkin.ts` | Check-in client: requires an authenticated user and browser location, then POSTs `{ occupancy_status, player_count? }` to FastAPI. |
 | `app/joins.ts` | `toggleCourtJoin` — insert/delete on `court_joins` (Join/Leave Pick-up). |
-| `app/courts.ts` | Shared `Court` type and `statusTone`/`isCourtFull` helpers. Coordinates are GeoJSON order: `[lng, lat]`. |
+| `app/courts.ts` | Shared `Court` type plus `statusTone`/`isCourtFull` and their expiry-aware counterparts `effectiveStatusTone`/`effectivePlayerCount` (a `status`/`player_count` report older than 90 minutes — `isReportExpired` against `updated_at` — reads as neutral/unset). Coordinates are GeoJSON order: `[lng, lat]`. |
 | `app/geo.ts` | Haversine straight-line distance in **miles** (`haversineMiles`), despite feed/map labels saying kilometres/mi inconsistently — check the label wording if you touch this. |
 | `lib/supabase.ts` | Browser Supabase client from public env vars. |
 | `lib/useAuth.ts` | Auth hook via `getSession` + `onAuthStateChange`. |

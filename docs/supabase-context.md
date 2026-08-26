@@ -26,6 +26,28 @@ that added no value here).
 | `added_by` | UUID | — |
 | `added_by_name` | TEXT | — |
 | `created_at` | TIMESTAMPTZ | `timezone('utc', now())` |
+| `image_url` | TEXT | — |
+| `court_type` | TEXT | `'outdoor'` (CHECK `IN ('indoor', 'outdoor')`) |
+| `capacity` | INTEGER | — |
+| `is_free` | BOOLEAN | `true` |
+| `price_amount` | NUMERIC(10,2) | — (CHECK `>= 0` when set; only meaningful when `is_free = false`) |
+| `has_water` | BOOLEAN | `false` |
+| `player_count` | INTEGER | — (CHECK `>= 0` when set) |
+
+`image_url`/`court_type`/`capacity` added by
+`migrations/20260825_court_media_capacity_joins.sql`; `is_free`/
+`price_amount`/`has_water` added by `migrations/20260826_pricing_water.sql`;
+`player_count` added by `migrations/20260826_expiring_checkin_status.sql`.
+The first two were missing from this doc's last reconciliation — see those
+migration files directly if anything here looks off.
+
+`status` and `player_count` are a **self-reported, expiring** pair: the
+`/checkin` endpoint (`backend/main.py`) writes both plus `updated_at` on
+every check-in, and the frontend (`swish-frontend/app/courts.ts`,
+`effectiveStatusTone`/`effectivePlayerCount`) treats a report older than 90
+minutes as stale and falls back to a neutral/unknown display — there is no
+database-side job that clears these columns, the 90-minute window is purely
+computed at read time.
 
 Primary key: `id`
 
@@ -34,6 +56,12 @@ RLS policies:
 - **Allow public read access on courts** (SELECT) — `USING (true)` (duplicate
   of the policy above; consider consolidating in Supabase)
 - **Authenticated users can add courts** (INSERT) — `WITH CHECK (auth.uid() = created_by)`
+- **Anyone can update court status** (UPDATE) — `USING (true) WITH CHECK (true)`,
+  added by `migrations/20260826_expiring_checkin_status.sql` so `/checkin`
+  can write `status`/`player_count`/`updated_at`. Permissive because the
+  backend's key may not carry the caller's auth context (see the JWT gap
+  noted in `../CLAUDE.md`); proximity is enforced server-side by
+  `check_court_proximity()` before this update is ever issued, not by RLS.
 
 Note: the app's insert code (`app/add-court/page.tsx`) does not set
 `created_by` explicitly, relying on the column default `auth.uid()`.

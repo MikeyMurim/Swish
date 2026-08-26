@@ -7,16 +7,21 @@ import Icon from "./Icon";
 type AuthGateModalProps = {
   title: string;
   description: string;
+  // Full-page gates (add-court, profile) want the browser "back" behaviour.
+  // Overlay usages (e.g. the feed's join/check-in gate) pass their own
+  // close handler instead, since there's no navigation to undo.
+  onClose?: () => void;
 };
 
-export default function AuthGateModal({ title, description }: AuthGateModalProps) {
+export default function AuthGateModal({ title, description, onClose }: AuthGateModalProps) {
   const router = useRouter();
+  const handleClose = onClose ?? (() => router.back());
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm px-container-margin">
       <div className="relative w-full max-w-md bg-surface-container border-t-4 border-primary-container border border-surface-variant/50 rounded-xl shadow-2xl p-stack-lg flex flex-col gap-stack-lg">
         <button
-          onClick={() => router.back()}
+          onClick={handleClose}
           aria-label="Close"
           className="absolute top-4 right-4 text-secondary hover:text-primary transition-colors"
         >

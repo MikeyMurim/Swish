@@ -6,9 +6,10 @@ export type CheckInResult =
 
 // UPDATED: Added `status: string` parameter
 export async function checkIn(
-  courtId: number, 
+  courtId: number,
   userLocation: [number, number] | null,
-  status: string
+  status: string,
+  playerCount?: number
 ): Promise<CheckInResult> {
   const { data: userData } = await supabase.auth.getUser();
 
@@ -45,7 +46,8 @@ export async function checkIn(
         user_id: userData.user.id,
         user_lat: lat,
         user_lng: lng,
-        occupancy_status: status // Passing the dynamic status from the modal
+        occupancy_status: status, // Passing the dynamic status from the modal
+        player_count: playerCount ?? null,
       }),
     });
 

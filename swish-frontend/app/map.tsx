@@ -10,7 +10,7 @@ import Icon from "./Icon";
 import CourtMedia from "./CourtMedia";
 import { checkIn } from "./checkin";
 import { toggleCourtJoin } from "./joins";
-import { isCourtFull, statusTone, type Court } from "./courts";
+import { effectiveStatusTone, isCourtFull, type Court } from "./courts";
 import { haversineMiles } from "./geo";
 import CheckInModal from "./CheckInModal";
 
@@ -198,7 +198,7 @@ export default function Map() {
       const { longitude: lng, latitude: lat } = court;
       if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
 
-      const highlight = statusTone(court.status) === "live" || selectedCourtId === court.id;
+      const highlight = effectiveStatusTone(court) === "live" || selectedCourtId === court.id;
       const element = buildMarkerElement(court, highlight);
 
       const marker = new maplibregl.Marker({ element }).setLngLat([lng, lat]).addTo(map.current!);

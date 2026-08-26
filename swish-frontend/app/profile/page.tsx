@@ -7,7 +7,7 @@ import { useAuth } from "../../lib/useAuth";
 import { SideNav, BottomNav } from "../NavShell";
 import AuthGateModal from "../AuthGateModal";
 import Icon from "../Icon";
-import { statusTone, type Court } from "../courts";
+import { effectiveStatusTone, type Court } from "../courts";
 
 type FavouriteRow = { court_id: number; courts: Court[] | Court | null };
 type SessionRow = { court_id: number; check_in_time: string; courts: Court[] | Court | null };
@@ -23,7 +23,7 @@ function oneCourt(value: Court[] | Court | null): Court | null {
 }
 
 function CourtCard({ court }: { court: Court }) {
-  const tone = statusTone(court.status);
+  const tone = effectiveStatusTone(court);
   return (
     <Link
       href={`/map-view?court=${court.id}`}

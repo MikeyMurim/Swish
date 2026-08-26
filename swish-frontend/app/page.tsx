@@ -7,9 +7,10 @@ import Icon from "./Icon";
 import CourtMedia from "./CourtMedia";
 import { checkIn } from "./checkin";
 import { toggleCourtJoin } from "./joins";
-import type { Court } from "./courts";
+import { effectivePlayerCount, type Court } from "./courts";
 import { haversineMiles } from "./geo";
-import CheckInModal from "./CheckInModal";
+import CourtDetailModal from "./CourtDetailModal";
+import AuthGateModal from "./AuthGateModal";
 import { useAuth } from "../lib/useAuth";
 import { useFavourites } from "../lib/useFavourites";
 
@@ -25,7 +26,6 @@ export default function HomeFeed() {
   const { favouriteIds, toggleFavourite } = useFavourites(user);
   const [courts, setCourts] = useState<Court[]>([]);
   const [loading, setLoading] = useState(true);
-  const [checkingIn, setCheckingIn] = useState<Record<number, boolean>>({});
   const [checkInMessage, setCheckInMessage] = useState<Record<number, string>>({});
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [distanceFilter, setDistanceFilter] = useState<number | null>(null);
@@ -33,6 +33,7 @@ export default function HomeFeed() {
   const [joinedCourtIds, setJoinedCourtIds] = useState<Set<number>>(new Set());
   const [joinCounts, setJoinCounts] = useState<Map<number, number>>(new Map());
   const [joining, setJoining] = useState<Record<number, boolean>>({});
+  const [authGateOpen, setAuthGateOpen] = useState(false);
 
   useEffect(() => {
     const fetchCourts = async () => {
@@ -113,15 +114,17 @@ export default function HomeFeed() {
     });
   }, [courts, distanceFilter, userLocation]);
 
-  const executeCheckIn = async (courtId: number, status: string) => {
-    setCheckingIn((c) => ({ ...c, [courtId]: true }));
+  const executeCheckIn = async (courtId: number, status: string, playerCount?: number) => {
     setCheckInMessage((c) => ({ ...c, [courtId]: "" }));
 
-    const result = await checkIn(courtId, userLocation, status);
+    const result = await checkIn(courtId, userLocation, status, playerCount);
 
-    setCheckingIn((c) => ({ ...c, [courtId]: false }));
     if (!result.ok) {
-      setCheckInMessage((c) => ({ ...c, [courtId]: result.message }));
+      if (result.reason === "not-signed-in") {
+        setAuthGateOpen(true);
+      } else {
+        setCheckInMessage((c) => ({ ...c, [courtId]: result.message }));
+      }
     } else {
       setCheckInMessage((c) => ({ ...c, [courtId]: "Checked in." }));
       setTimeout(() => {
@@ -130,9 +133,14 @@ export default function HomeFeed() {
     }
   };
 
+  const handleConfirmCount = async (courtId: number, count: number, capacity: number | null) => {
+    const status = capacity !== null && count >= capacity ? "full" : "live";
+    await executeCheckIn(courtId, status, count);
+  };
+
   const handleToggleJoin = async (courtId: number) => {
     if (!user) {
-      setCheckInMessage((current) => ({ ...current, [courtId]: "Sign in to join pick-up." }));
+      setAuthGateOpen(true);
       return;
     }
 
@@ -199,14 +207,17 @@ export default function HomeFeed() {
           ) : (
             visibleCourts.map((court) => {
               const joinedCount = joinCounts.get(court.id) ?? 0;
+              const reportedCount = effectivePlayerCount(court);
+              const displayCount = reportedCount ?? joinedCount;
               const isJoined = joinedCourtIds.has(court.id);
               const capacity = court.capacity ?? null;
-              const isFull = capacity !== null && joinedCount >= capacity && !isJoined;
+              const isFull = capacity !== null && displayCount >= capacity && !isJoined;
 
               return (
                 <article
                   key={court.id}
-                  className="group relative bg-surface-container overflow-hidden rounded-xl border border-surface-variant/50 hover:border-primary/50 transition-all duration-300 shadow-lg"
+                  onClick={() => setModalCourt(court)}
+                  className="group relative bg-surface-container overflow-hidden rounded-xl border border-surface-variant/50 hover:border-primary/50 transition-all duration-300 shadow-lg cursor-pointer"
                 >
                   <CourtMedia court={court} className="h-72" />
                   <div className="absolute bottom-0 left-0 right-0 p-6 flex flex-col gap-2">
@@ -224,7 +235,7 @@ export default function HomeFeed() {
                       </div>
                       <div className="text-right shrink-0">
                         <span className="block font-headline text-headline-md text-primary">
-                          {capacity !== null ? `${joinedCount}/${capacity}` : joinedCount}
+                          {capacity !== null ? `${displayCount}/${capacity}` : displayCount}
                         </span>
                         <span className="block font-body text-label-sm text-secondary uppercase">
                           {isFull ? "Full" : "Players"}
@@ -234,7 +245,15 @@ export default function HomeFeed() {
 
                     <div className="mt-2 flex gap-3">
                       <button
-                        onClick={() => handleToggleJoin(court.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!user) {
+                            setAuthGateOpen(true);
+                            return;
+                          }
+                          handleToggleJoin(court.id);
+                          setModalCourt(court);
+                        }}
                         disabled={joining[court.id] || isFull}
                         className={`flex-1 font-body text-label-md py-3 rounded-lg uppercase font-black active:scale-95 transition-all disabled:opacity-50 ${
                           isJoined
@@ -251,15 +270,10 @@ export default function HomeFeed() {
                           : "Join Pick-up"}
                       </button>
                       <button
-                        onClick={() => setModalCourt(court)}
-                        disabled={checkingIn[court.id]}
-                        aria-label="Update status"
-                        className="w-12 border border-secondary/30 flex items-center justify-center rounded-lg hover:bg-surface-variant transition-colors text-on-surface disabled:opacity-60"
-                      >
-                        <Icon name="local_fire_department" />
-                      </button>
-                      <button
-                        onClick={() => toggleFavourite(court.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFavourite(court.id);
+                        }}
                         aria-label={favouriteIds.has(court.id) ? "Remove from favourites" : "Add to favourites"}
                         className={`w-12 rounded-lg border transition-colors flex items-center justify-center ${
                           favouriteIds.has(court.id)
@@ -270,11 +284,6 @@ export default function HomeFeed() {
                         <Icon name="favorite" filled={favouriteIds.has(court.id)} />
                       </button>
                     </div>
-                    {checkInMessage[court.id] && (
-                      <p className="font-body text-label-sm text-secondary">
-                        {checkInMessage[court.id]}
-                      </p>
-                    )}
                   </div>
                 </article>
               );
@@ -286,10 +295,24 @@ export default function HomeFeed() {
       <BottomNav />
 
       {modalCourt && (
-        <CheckInModal
+        <CourtDetailModal
           court={modalCourt}
+          playerCount={effectivePlayerCount(modalCourt) ?? joinCounts.get(modalCourt.id) ?? 0}
+          isFavourited={favouriteIds.has(modalCourt.id)}
+          isSignedIn={!!user}
+          onToggleFavourite={() => toggleFavourite(modalCourt.id)}
           onClose={() => setModalCourt(null)}
-          onConfirm={(status) => executeCheckIn(modalCourt.id, status)}
+          onConfirmCount={(count) => handleConfirmCount(modalCourt.id, count, modalCourt.capacity ?? null)}
+          onRequireAuth={() => setAuthGateOpen(true)}
+          statusMessage={checkInMessage[modalCourt.id]}
+        />
+      )}
+
+      {authGateOpen && (
+        <AuthGateModal
+          title="Sign In to Join"
+          description="You need an account to join pick-up or report the player count."
+          onClose={() => setAuthGateOpen(false)}
         />
       )}
     </div>

@@ -22,6 +22,9 @@ export default function AddCourtPage() {
   const [name, setName] = useState("");
   const [courtType, setCourtType] = useState<"indoor" | "outdoor">("outdoor");
   const [capacity, setCapacity] = useState("");
+  const [isFree, setIsFree] = useState(true);
+  const [priceAmount, setPriceAmount] = useState("");
+  const [hasWater, setHasWater] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [address, setAddress] = useState("");
@@ -222,6 +225,9 @@ export default function AddCourtPage() {
       court_type: courtType,
       capacity: capacity.trim() ? Number(capacity) : null,
       image_url: uploadedImageUrl,
+      is_free: isFree,
+      price_amount: !isFree && priceAmount.trim() ? Number(priceAmount) : null,
+      has_water: hasWater,
     });
 
     setSubmitting(false);
@@ -302,6 +308,55 @@ export default function AddCourtPage() {
                 />
               </div>
             </div>
+
+            <div>
+              <label className="font-body text-label-sm text-secondary uppercase block mb-1">Pricing</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsFree(true)}
+                  className={`flex-1 rounded-lg px-4 py-3 font-body text-label-sm uppercase font-bold border transition-colors ${
+                    isFree
+                      ? "bg-primary-container text-on-primary-container border-primary"
+                      : "bg-surface-container-high text-on-surface border-surface-variant hover:border-primary-container"
+                  }`}
+                >
+                  Free
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsFree(false)}
+                  className={`flex-1 rounded-lg px-4 py-3 font-body text-label-sm uppercase font-bold border transition-colors ${
+                    !isFree
+                      ? "bg-primary-container text-on-primary-container border-primary"
+                      : "bg-surface-container-high text-on-surface border-surface-variant hover:border-primary-container"
+                  }`}
+                >
+                  Paid
+                </button>
+              </div>
+              {!isFree && (
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={priceAmount}
+                  onChange={(e) => setPriceAmount(e.target.value)}
+                  placeholder="e.g. 10.00"
+                  className="w-full mt-2 bg-surface-container-high border border-surface-variant rounded-lg px-4 py-3 text-on-surface font-body outline-none focus:border-primary-container"
+                />
+              )}
+            </div>
+
+            <label className="flex items-center gap-3 bg-surface-container-high border border-surface-variant rounded-lg px-4 py-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={hasWater}
+                onChange={(e) => setHasWater(e.target.checked)}
+                className="w-5 h-5 accent-primary-container"
+              />
+              <span className="font-body text-label-md text-on-surface">Water available on site</span>
+            </label>
 
             <div>
               <label className="font-body text-label-sm text-secondary uppercase block mb-1">Court photo (optional)</label>

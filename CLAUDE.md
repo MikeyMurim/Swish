@@ -68,13 +68,18 @@ check-in's geofence — it loads its own Supabase credentials from
 `backend/.env`, calls the `check_court_proximity` RPC, and only then inserts
 into `sessions`.
 
-**Known gap:** `POST /checkin` receives `occupancy_status` but `backend/main.py`
-never uses it — it doesn't update `courts.status` or `courts.updated_at`. A
-check-in currently only writes a `sessions` row; the feed/map's realtime
-"live"/"full" display will not reflect a check-in unless something else (a
-trigger, or a future backend change) also updates `courts`. Implementing that
-properly requires adding the `courts` update alongside a `courts` UPDATE RLS
-policy.
+`POST /checkin` writes `status`, `player_count` (when the caller supplies
+one), and `updated_at` back onto the `courts` row after the proximity check
+passes, alongside the `sessions` insert — so feed/map realtime subscriptions
+pick up a check-in immediately. This report is **self-expiring**: the
+frontend (`swish-frontend/app/courts.ts`, `effectiveStatusTone`/
+`effectivePlayerCount`) treats `status`/`player_count` as stale once
+`updated_at` is more than 90 minutes old and falls back to a neutral/unknown
+display, rather than showing a check-in forever. There's no database-side
+job clearing these columns — the 90-minute window is purely computed at
+read time, so an old row still holds its last-reported values, just
+unrendered as current. This requires the permissive `courts` UPDATE RLS
+policy added in `migrations/20260826_expiring_checkin_status.sql`.
 
 **Known gap:** the backend does not validate the caller's Supabase JWT — the
 browser just passes a `user_id` in the POST body. Any check-in security work
@@ -124,9 +129,11 @@ Cross-cutting things worth knowing without opening every migration:
 1. Read `docs/supabase-context.md` before any Supabase-facing change.
 2. Preserve the coordinate-order convention (above) and check both the feed
    (`app/page.tsx`) and map (`app/map.tsx`) after touching court data shapes.
-3. For a status/check-in change, trace the whole path: `CheckInModal` →
-   `app/checkin.ts` → FastAPI → RPC/session write → (no `courts` update yet,
-   see the known gap above) → Realtime event → UI.
+3. For a status/check-in change, trace the whole path: `CourtDetailModal`
+   (feed) or `CheckInModal` (map) → `app/checkin.ts` → FastAPI → RPC/session
+   write → `courts` update (`status`/`player_count`/`updated_at`) → Realtime
+   event → UI, remembering the 90-minute self-expiry (above) applies at
+   render time, not in the database.
 4. Run `npm run lint` and `npm run build` in `swish-frontend/` after frontend
    changes; exercise FastAPI's `/docs` or the endpoint manually after backend
    changes.

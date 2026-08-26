@@ -1,4 +1,6 @@
 import os
+from datetime import datetime, timezone
+from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from supabase import create_client
@@ -25,6 +27,7 @@ class CheckInRequest(BaseModel):
     user_lat: float
     user_lng: float
     occupancy_status: str
+    player_count: Optional[int] = None
 
 @app.post("/checkin")
 async def check_in(request: CheckInRequest):
@@ -45,5 +48,19 @@ async def check_in(request: CheckInRequest):
         "court_id": request.court_id,
         "user_id": request.user_id
     }).execute()
-    
+
+    # Reflect the reported status (and headcount, if given) on the court
+    # itself so the feed/map realtime subscriptions pick it up. `updated_at`
+    # doubles as the report's freshness timestamp: the frontend treats a
+    # status/count older than 90 minutes as expired rather than showing it
+    # forever.
+    court_update = {
+        "status": request.occupancy_status,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if request.player_count is not None:
+        court_update["player_count"] = request.player_count
+
+    supabase.table("courts").update(court_update).eq("id", request.court_id).execute()
+
     return {"message": "Check-in successful!"}
