@@ -39,6 +39,3 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-
-# Local-only Claude Code guidance (kept on disk, not shared via git)
-CLAUDE.md
