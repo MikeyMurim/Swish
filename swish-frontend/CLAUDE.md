@@ -34,11 +34,9 @@ font `<link>` in `app/layout.tsx`, and the plain `<img>` avatar in
 ```dotenv
 NEXT_PUBLIC_SUPABASE_URL=<Supabase project URL>
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<Supabase anon/publishable key>
-NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
 ```
 
-`NEXT_PUBLIC_API_URL` defaults to `http://127.0.0.1:8000` if unset. All
-`NEXT_PUBLIC_*` values are browser-visible by design — never put a
+All `NEXT_PUBLIC_*` values are browser-visible by design — never put a
 service-role key in them.
 
 ## Routes and modules
@@ -59,7 +57,7 @@ Router.
 | `app/CheckInModal.tsx` | Map's `live`/`full` check-in picker (map.tsx only — the feed uses `CourtDetailModal`'s headcount slider instead). |
 | `app/CourtDetailModal.tsx` | Feed's court detail popup (opened by clicking a card or Join Pick-up): hero photo, pricing/water info, an embedded MapLibre preview at the court's coordinates, and "I'm hooping" → a headcount slider (capped at `capacity`) that check-ins with that count. |
 | `app/CourtMedia.tsx` | Court photo/placeholder header used by feed cards and the map detail panel; renders the indoor/outdoor badge and a "Live Now" badge, using the expiry-aware `effectiveStatusTone`. |
-| `app/checkin.ts` | Check-in client: requires an authenticated user and browser location, then POSTs `{ occupancy_status, player_count? }` to FastAPI. |
+| `app/checkin.ts` | Check-in client: requires an authenticated user and browser location, then calls the `check_in_to_court` Postgres RPC directly via `supabase.rpc(...)` — no separate backend. |
 | `app/joins.ts` | `toggleCourtJoin` — insert/delete on `court_joins` (Join/Leave Pick-up). |
 | `app/courts.ts` | Shared `Court` type plus `statusTone`/`isCourtFull` and their expiry-aware counterparts `effectiveStatusTone`/`effectivePlayerCount` (a `status`/`player_count` report older than 90 minutes — `isReportExpired` against `updated_at` — reads as neutral/unset). Coordinates are GeoJSON order: `[lng, lat]`. |
 | `app/geo.ts` | Haversine straight-line distance in **miles** (`haversineMiles`), despite feed/map labels saying kilometres/mi inconsistently — check the label wording if you touch this. |
@@ -85,7 +83,7 @@ Router.
 - Nominatim (`lib/geocode.ts`) is free but rate-limited to ~1 request/second;
   `add-court/page.tsx` debounces address input by 1s before calling it. Keep
   lookups intentional and move to a managed geocoder before scaling traffic.
-- Coordinate order: UI/Supabase/MapLibre use `[lng, lat]`; the check-in
-  request body uses separate `user_lat`/`user_lng` fields. Don't mix them up
+- Coordinate order: UI/Supabase/MapLibre use `[lng, lat]`; the `check_in_to_court`
+  RPC's params are separate `user_lat`/`user_lng` fields. Don't mix them up
   when touching either path.
 

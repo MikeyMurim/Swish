@@ -13,11 +13,10 @@ Players often travel to public courts only to find them completely full, closed 
 
 ## Tech Stack & Architecture
 * **Frontend:** Next.js (App Router), Tailwind CSS, MapLibre GL JS
-* **Backend Validation Layer:** FastAPI (Python)
 * **Database & Real-time:** Supabase (PostgreSQL + PostGIS + Supabase Realtime)
 * **Monitoring:** Sentry
 
 ## Technical Trade-offs & Engineering Decisions
-* **Why FastAPI over Edge Functions?** To maintain a strict separation of concerns. Offloading the geospatial validation (Haversine formula/PostGIS proximity checks) to a dedicated Python microservice ensures the Next.js frontend remains purely presentational.
+* **Why a Postgres RPC over a separate backend/Edge Functions?** The geofence check (proximity validation, session insert, court status update) is pure data-layer logic with no third-party calls or secrets that need to stay out of the database, so it runs as a single `SECURITY INVOKER` function (`check_in_to_court`) called directly from the browser via `supabase.rpc(...)`. That keeps everything on one platform — no separate service to host, deploy, or configure CORS for — while still fully server-enforcing the 50-metre radius and deriving the caller from their real Supabase session (`auth.uid()`), not a client-supplied id.
 * **Why MapLibre over Google Maps?** MapLibre offers greater customisation for data-heavy vector overlays and avoids the aggressive pricing tiers of Google's API for a high-traffic geospatial MVP.
 * **Why PostGIS?** Instead of fetching static lists of courts and calculating distance on the client side (which scales poorly), PostGIS allows for native spatial querying at the database level (e.g., `ST_DWithin`).

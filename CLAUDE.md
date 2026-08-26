@@ -6,9 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Swish is a Sydney public-basketball-court discovery MVP: browse courts on a
 feed or live map, report a court `live`/`full` when physically within 50
-metres of it (enforced server-side, not trusted to the browser), join a
-pick-up session, and favourite courts. It's a deliberately small codebase with
-no automated tests.
+metres of it (enforced server-side via a Postgres RPC, not trusted to the
+browser), join a pick-up session, and favourite courts. It's a deliberately
+small codebase with no automated tests, and talks to Supabase directly for
+everything — there's no separate backend to host or deploy.
 
 ## Repository layout
 
@@ -17,16 +18,15 @@ Swish/
 ├─ schema.sql                   # Early/bootstrap PostGIS schema — NOT the source of truth, see below
 ├─ migrations/                  # Hand-written SQL patches, applied manually in filename order
 ├─ docs/supabase-context.md     # Hand-maintained live Supabase schema/RLS reference — read before touching DB behavior
-├─ backend/                     # FastAPI geofence-validation service (main.py, requirements.txt, .env)
 └─ swish-frontend/              # Next.js 16 App Router client (see swish-frontend/CLAUDE.md)
 ```
 
-`backend/venv`, `node_modules`, `swish-frontend/.next`, and `__pycache__` are
-generated/gitignored — never treat them as source.
+`node_modules` and `swish-frontend/.next` are generated/gitignored — never
+treat them as source.
 
 ## Commands
 
-Frontend, from `swish-frontend/`:
+From `swish-frontend/`:
 
 ```powershell
 npm install
@@ -36,64 +36,53 @@ npm run build
 npx tsc --noEmit   # type-check without invoking the build
 ```
 
-Backend, from `backend/`:
-
-```powershell
-.\venv\Scripts\Activate.ps1
-uvicorn main:app --reload --port 8000
-```
-
-Backend needs `backend/.env` with `SUPABASE_URL` and `SUPABASE_KEY`; it
-raises `ValueError` on import if either is missing. Optional `FRONTEND_URL`
-(defaults to `http://localhost:3000`) sets the allowed CORS origin — see the
-architecture section below.
-
 There's no automated test suite and no migration tool. `migrations/*.sql`
 must be applied by hand to the Supabase project's SQL editor, in filename
 (date) order, before the frontend code that depends on them will work
 correctly (e.g. `court_joins`, `image_url`/`court_type`/`capacity`, the
-`get_courts_for_map` RPC signature).
+`get_courts_for_map` RPC signature, the `check_in_to_court` RPC).
 
 ## Architecture and data flow
 
 ```
 Browser (Next.js + React)
-  ├─ Supabase JS client ── Auth, court/favourite/join reads-writes, Realtime subscriptions
-  │                         └─ Supabase PostgreSQL / PostGIS
-  └─ POST /checkin ─────── FastAPI validates proximity via a Supabase RPC
-                            and inserts a session record
+  └─ Supabase JS client ── Auth, court/favourite/join/check-in reads-writes, Realtime subscriptions
+                            └─ Supabase PostgreSQL / PostGIS
 ```
 
-The browser talks to Supabase directly for all ordinary product data (courts,
-favourites, joins, profile metadata). FastAPI exists solely to validate a
-check-in's geofence — it loads its own Supabase credentials from
-`backend/.env`, calls the `check_court_proximity` RPC, and only then inserts
-into `sessions`.
+The browser talks to Supabase directly for everything, including check-in —
+there used to be a small FastAPI service whose only job was validating a
+check-in's geofence before writing to the database, but that logic now lives
+entirely in the `check_in_to_court()` Postgres RPC
+(`migrations/20260826_rpc_checkin.sql`), called directly via
+`swish-frontend/app/checkin.ts`'s `supabase.rpc(...)`. `check_in_to_court`
+runs `SECURITY INVOKER` (not `DEFINER` — Supabase's function-owner role is a
+superuser, and superusers bypass RLS entirely, which would make the
+`sessions`/`courts` RLS policies decorative), so it executes as the real
+signed-in caller: it derives the user from `auth.uid()` (never trusting a
+client-supplied id — this is what closed the previous JWT-spoofing gap),
+calls the existing `check_court_proximity()` RPC, and on success inserts a
+`sessions` row and updates `courts` in one transaction.
 
-`POST /checkin` writes `status`, `player_count` (when the caller supplies
-one), and `updated_at` back onto the `courts` row after the proximity check
-passes, alongside the `sessions` insert — so feed/map realtime subscriptions
-pick up a check-in immediately. This report is **self-expiring**: the
-frontend (`swish-frontend/app/courts.ts`, `effectiveStatusTone`/
-`effectivePlayerCount`) treats `status`/`player_count` as stale once
-`updated_at` is more than 90 minutes old and falls back to a neutral/unknown
-display, rather than showing a check-in forever. There's no database-side
-job clearing these columns — the 90-minute window is purely computed at
-read time, so an old row still holds its last-reported values, just
-unrendered as current. This requires the permissive `courts` UPDATE RLS
-policy added in `migrations/20260826_expiring_checkin_status.sql`.
+`check_in_to_court` writes `status`, `player_count` (when the caller
+supplies one), and `updated_at` back onto the `courts` row after the
+proximity check passes, alongside the `sessions` insert — so feed/map
+realtime subscriptions pick up a check-in immediately. This report is
+**self-expiring**: the frontend (`swish-frontend/app/courts.ts`,
+`effectiveStatusTone`/`effectivePlayerCount`) treats `status`/`player_count`
+as stale once `updated_at` is more than 90 minutes old and falls back to a
+neutral/unknown display, rather than showing a check-in forever. There's no
+database-side job clearing these columns — the 90-minute window is purely
+computed at read time, so an old row still holds its last-reported values,
+just unrendered as current. This requires the `courts` UPDATE RLS policy
+(scoped to `authenticated`) from `migrations/20260826_rpc_checkin.sql`.
 
-**Known gap:** the backend does not validate the caller's Supabase JWT — the
-browser just passes a `user_id` in the POST body. Any check-in security work
-should authenticate server-side and derive the user id from the token instead.
-
-`backend/main.py` allows CORS from `FRONTEND_URL` (`backend/.env`, defaults
-to `http://localhost:3000`) — without it, every `/checkin` call fails as a
-generic browser network error (`TypeError: Failed to fetch`), not as a
-403/validation error, because the preflight `OPTIONS` request has nowhere
-to get an `Access-Control-Allow-Origin` header from. Set `FRONTEND_URL` to
-match wherever the frontend is actually served if it's not the default dev
-port.
+**Known gap:** RLS can't verify "this write came from `check_in_to_court`
+after a passed proximity check" — it can only gate on role/columns. An
+authenticated user can still call `.from('courts').update(...)` directly,
+bypassing the geofence entirely. Closing that fully would mean revoking
+`UPDATE` from `authenticated` and making the RPC `SECURITY DEFINER` instead
+— a bigger tradeoff (RLS bypass inside the function) not taken here.
 
 ## Database
 
@@ -112,9 +101,9 @@ Cross-cutting things worth knowing without opening every migration:
 - `courts.location` is JSONB storing GeoJSON (`{ type: "Point", coordinates: [lng, lat] }`),
   not a native PostGIS geography column, despite `postgis` being enabled.
   Coordinate order is therefore inconsistent across layers: browser/MapLibre/
-  Supabase reads use `[lng, lat]`; the FastAPI RPC takes separate `user_lat`,
-  `user_lng`; PostGIS WKT is `POINT(lng lat)`. Keep this straight when editing
-  any of these paths.
+  Supabase reads use `[lng, lat]`; `check_court_proximity`/`check_in_to_court`
+  take separate `user_lat`, `user_lng`; PostGIS WKT is `POINT(lng lat)`. Keep
+  this straight when editing any of these paths.
 - `courts.added_by` is `UUID` with no default and is never set by
   `add-court/page.tsx`'s insert, so it's `NULL` on every court created through
   the current UI — the feed's contributor label always falls back to "the
@@ -138,13 +127,15 @@ Cross-cutting things worth knowing without opening every migration:
 2. Preserve the coordinate-order convention (above) and check both the feed
    (`app/page.tsx`) and map (`app/map.tsx`) after touching court data shapes.
 3. For a status/check-in change, trace the whole path: `CourtDetailModal`
-   (feed) or `CheckInModal` (map) → `app/checkin.ts` → FastAPI → RPC/session
-   write → `courts` update (`status`/`player_count`/`updated_at`) → Realtime
-   event → UI, remembering the 90-minute self-expiry (above) applies at
-   render time, not in the database.
+   (feed) or `CheckInModal` (map) → `app/checkin.ts` → `check_in_to_court`
+   RPC → `check_court_proximity` → `sessions` insert + `courts` update
+   (`status`/`player_count`/`updated_at`) → Realtime event → UI, remembering
+   the 90-minute self-expiry (above) applies at render time, not in the
+   database.
 4. Run `npm run lint` and `npm run build` in `swish-frontend/` after frontend
-   changes; exercise FastAPI's `/docs` or the endpoint manually after backend
-   changes.
+   changes; changes to `check_in_to_court` or `check_court_proximity` need
+   manual verification against the Supabase project (there's no local
+   Postgres to run them against).
 5. Update `docs/supabase-context.md` (and this file, if architecture changes)
    whenever the deployed schema, policies, or data flow materially change.
 

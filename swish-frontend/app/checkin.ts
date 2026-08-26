@@ -4,7 +4,10 @@ export type CheckInResult =
   | { ok: true }
   | { ok: false; reason: "not-signed-in" | "no-location" | "error"; message: string };
 
-// UPDATED: Added `status: string` parameter
+// Custom SQLSTATE the check_in_to_court RPC raises when the caller is
+// outside the 50m geofence -- see migrations/20260826_rpc_checkin.sql.
+const GEOFENCE_ERROR_CODE = "SW001";
+
 export async function checkIn(
   courtId: number,
   userLocation: [number, number] | null,
@@ -31,38 +34,21 @@ export async function checkIn(
   }
 
   const [lng, lat] = userLocation;
-  
-  // Pointing to your local FastAPI server
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
-  try {
-    const response = await fetch(`${API_URL}/checkin`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        court_id: courtId,
-        user_id: userData.user.id,
-        user_lat: lat,
-        user_lng: lng,
-        occupancy_status: status, // Passing the dynamic status from the modal
-        player_count: playerCount ?? null,
-      }),
-    });
+  const { error } = await supabase.rpc("check_in_to_court", {
+    court_id: courtId,
+    user_lat: lat,
+    user_lng: lng,
+    occupancy_status: status,
+    player_count: playerCount ?? null,
+  });
 
-    if (!response.ok) {
-      // 403 Forbidden means our PostGIS ST_DWithin query blocked them!
-      if (response.status === 403) {
-        return { ok: false, reason: "error", message: "Geofence block: You must be within 50 meters of the court." };
-      }
-      
-      const errorData = await response.json().catch(() => ({}));
-      return { ok: false, reason: "error", message: errorData.detail || "Validation server error." };
+  if (error) {
+    if (error.code === GEOFENCE_ERROR_CODE) {
+      return { ok: false, reason: "error", message: "Geofence block: You must be within 50 meters of the court." };
     }
-
-    return { ok: true };
-  } catch {
-    return { ok: false, reason: "error", message: "Failed to connect to the validation server." };
+    return { ok: false, reason: "error", message: error.message || "Check-in failed." };
   }
+
+  return { ok: true };
 }
