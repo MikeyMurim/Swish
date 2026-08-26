@@ -5,6 +5,9 @@ backend/**/__pycache__/
 backend/.env
 *.pyc
 
+# Local-only Claude Code guidance (kept on disk, not shared via git)
+/CLAUDE.md
+
 # Editors / OS
 .DS_Store
 Thumbs.db
