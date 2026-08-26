@@ -5,6 +5,9 @@ export type Court = {
   address?: string | null;
   added_by?: string | null;
   updated_at?: string | null;
+  image_url?: string | null;
+  court_type?: "indoor" | "outdoor" | null;
+  capacity?: number | null;
 
   location: {
     coordinates: [number, number]; // [lng, lat]

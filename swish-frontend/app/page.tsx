@@ -4,11 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { SideNav, BottomNav } from "./NavShell";
 import Icon from "./Icon";
+import CourtMedia from "./CourtMedia";
 import { checkIn } from "./checkin";
-import { statusTone, type Court } from "./courts";
+import { toggleCourtJoin } from "./joins";
+import type { Court } from "./courts";
 import { haversineMiles } from "./geo";
 import CheckInModal from "./CheckInModal";
 import { useAuth } from "../lib/useAuth";
+import { useFavourites } from "../lib/useFavourites";
 
 const DISTANCE_OPTIONS = [
   { label: "Any distance", value: null },
@@ -19,6 +22,7 @@ const DISTANCE_OPTIONS = [
 
 export default function HomeFeed() {
   const { user } = useAuth();
+  const { favouriteIds, toggleFavourite } = useFavourites(user);
   const [courts, setCourts] = useState<Court[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkingIn, setCheckingIn] = useState<Record<number, boolean>>({});
@@ -26,7 +30,9 @@ export default function HomeFeed() {
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [distanceFilter, setDistanceFilter] = useState<number | null>(null);
   const [modalCourt, setModalCourt] = useState<Court | null>(null);
-  const [favouriteIds, setFavouriteIds] = useState<Set<number>>(new Set());
+  const [joinedCourtIds, setJoinedCourtIds] = useState<Set<number>>(new Set());
+  const [joinCounts, setJoinCounts] = useState<Map<number, number>>(new Map());
+  const [joining, setJoining] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
     const fetchCourts = async () => {
@@ -62,13 +68,33 @@ export default function HomeFeed() {
   }, []);
 
   useEffect(() => {
-    if (!user) return;
+    const fetchJoins = async () => {
+      const { data, error } = await supabase.from("court_joins").select("court_id, user_id");
+      if (error) {
+        console.error("Error fetching court joins:", error);
+        return;
+      }
+      const counts = new Map<number, number>();
+      const mine = new Set<number>();
+      for (const row of data ?? []) {
+        counts.set(row.court_id, (counts.get(row.court_id) ?? 0) + 1);
+        if (user && row.user_id === user.id) mine.add(row.court_id);
+      }
+      setJoinCounts(counts);
+      setJoinedCourtIds(mine);
+    };
+    fetchJoins();
 
-    supabase
-      .from("favourite_courts")
-      .select("court_id")
-      .eq("user_id", user.id)
-      .then(({ data }) => setFavouriteIds(new Set((data ?? []).map((row) => row.court_id))));
+    const channel = supabase
+      .channel("realtime-court-joins-feed")
+      .on("postgres_changes", { event: "*", schema: "public", table: "court_joins" }, () => {
+        fetchJoins();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user]);
 
   useEffect(() => {
@@ -104,22 +130,28 @@ export default function HomeFeed() {
     }
   };
 
-  const toggleFavourite = async (courtId: number) => {
+  const handleToggleJoin = async (courtId: number) => {
     if (!user) {
-      setCheckInMessage((current) => ({ ...current, [courtId]: "Sign in to save favourite courts." }));
+      setCheckInMessage((current) => ({ ...current, [courtId]: "Sign in to join pick-up." }));
       return;
     }
 
-    const isFavourite = favouriteIds.has(courtId);
-    const { error } = isFavourite
-      ? await supabase.from("favourite_courts").delete().eq("court_id", courtId).eq("user_id", user.id)
-      : await supabase.from("favourite_courts").insert({ court_id: courtId, user_id: user.id });
+    setJoining((current) => ({ ...current, [courtId]: true }));
+    const isJoined = joinedCourtIds.has(courtId);
+    const { error } = await toggleCourtJoin(courtId, user.id, isJoined);
+    setJoining((current) => ({ ...current, [courtId]: false }));
 
     if (!error) {
-      setFavouriteIds((current) => {
+      setJoinedCourtIds((current) => {
         const next = new Set(current);
-        if (isFavourite) next.delete(courtId);
+        if (isJoined) next.delete(courtId);
         else next.add(courtId);
+        return next;
+      });
+      setJoinCounts((current) => {
+        const next = new Map(current);
+        const count = next.get(courtId) ?? 0;
+        next.set(courtId, isJoined ? Math.max(0, count - 1) : count + 1);
         return next;
       });
     }
@@ -155,90 +187,94 @@ export default function HomeFeed() {
           </div>
         </header>
 
-        <div className="max-w-3xl mx-auto px-container-margin md:px-8 mt-stack-md flex flex-col gap-4">
+        <div className="max-w-5xl mx-auto px-container-margin md:px-8 mt-stack-md grid grid-cols-1 md:grid-cols-2 gap-gutter">
           {loading ? (
-            <div className="text-center text-secondary py-10 animate-pulse font-body">
+            <div className="md:col-span-2 text-center text-secondary py-10 animate-pulse font-body">
               Loading courts near you...
             </div>
           ) : visibleCourts.length === 0 ? (
-            <div className="text-center text-secondary py-10 font-body">
+            <div className="md:col-span-2 text-center text-secondary py-10 font-body">
               No courts found.
             </div>
           ) : (
             visibleCourts.map((court) => {
-              const tone = statusTone(court.status);
+              const joinedCount = joinCounts.get(court.id) ?? 0;
+              const isJoined = joinedCourtIds.has(court.id);
+              const capacity = court.capacity ?? null;
+              const isFull = capacity !== null && joinedCount >= capacity && !isJoined;
 
               return (
                 <article
                   key={court.id}
-                  className="bg-surface-container rounded-xl border border-surface-variant/50 hover:border-primary/50 transition-all duration-300 shadow-lg p-5"
+                  className="group relative bg-surface-container overflow-hidden rounded-xl border border-surface-variant/50 hover:border-primary/50 transition-all duration-300 shadow-lg"
                 >
-                  <div className="flex items-start gap-4">
-                    <div className="shrink-0 rounded-xl bg-surface-container-high p-3">
-                      <Icon name="sports_basketball" className="text-3xl! text-primary" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                        <h3 className="font-headline text-headline-md text-on-surface uppercase leading-none">
+                  <CourtMedia court={court} className="h-72" />
+                  <div className="absolute bottom-0 left-0 right-0 p-6 flex flex-col gap-2">
+                    <div className="flex justify-between items-end gap-3">
+                      <div className="min-w-0">
+                        <h3 className="font-headline text-headline-md text-on-surface uppercase leading-none truncate">
                           {court.name}
                         </h3>
                         {court.address && (
-                          <p className="font-body text-label-sm text-secondary mt-1 normal-case">
+                          <p className="font-body text-label-sm text-secondary opacity-80 flex items-center gap-1 mt-1">
+                            <Icon name="location_on" className="text-sm!" />
                             {court.address}
                           </p>
                         )}
-                        <p className="font-body text-label-sm text-secondary mt-2">
-                          Added by {court.added_by || "the Swish community"}
-                        </p>
-                        </div>
-                        <span
-                          className={`font-body text-label-sm px-3 py-1 rounded-full uppercase font-bold border ${
-                            tone === "live"
-                              ? "bg-primary-container text-on-primary-container border-transparent animate-pulse"
-                              : tone === "full"
-                              ? "bg-surface-container-highest text-error border-error/30"
-                              : "bg-surface-container-highest text-primary border-primary/20"
-                          }`}
-                        >
-                          {court.status ?? "Unknown"}
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="block font-headline text-headline-md text-primary">
+                          {capacity !== null ? `${joinedCount}/${capacity}` : joinedCount}
+                        </span>
+                        <span className="block font-body text-label-sm text-secondary uppercase">
+                          {isFull ? "Full" : "Players"}
                         </span>
                       </div>
-                      <a
-                        href={`/map-view?court=${court.id}`}
-                        className="mt-3 font-body text-label-sm text-secondary hover:text-primary flex items-center gap-1"
-                      >
-                        <Icon name="location_on" className="text-sm!" />
-                        View on map
-                      </a>
-                      <div className="mt-4 flex flex-col gap-2">
-                      <div className="flex gap-3">
-                        <button
-                          onClick={() => setModalCourt(court)}
-                          disabled={checkingIn[court.id]}
-                          className="flex-1 font-body text-label-md py-3 rounded-lg uppercase font-black active:scale-95 transition-all bg-primary-container text-on-primary-container hover:brightness-110 disabled:opacity-60"
-                        >
-                          {checkingIn[court.id] ? "Processing..." : "Update Status"}
-                        </button>
-                        <button
-                          onClick={() => toggleFavourite(court.id)}
-                          aria-label={favouriteIds.has(court.id) ? "Remove from favourites" : "Add to favourites"}
-                          className={`w-12 rounded-lg border transition-colors ${
-                            favouriteIds.has(court.id)
-                              ? "border-primary bg-primary-container text-on-primary-container"
-                              : "border-surface-variant text-secondary hover:text-primary"
-                          }`}
-                        >
-                          <Icon name="favorite" filled={favouriteIds.has(court.id)} />
-                        </button>
-                      </div>
-                      {checkInMessage[court.id] && (
-                        <p className="font-body text-label-sm text-secondary">
-                          {checkInMessage[court.id]}
-                        </p>
-                      )}
-                      </div>
                     </div>
+
+                    <div className="mt-2 flex gap-3">
+                      <button
+                        onClick={() => handleToggleJoin(court.id)}
+                        disabled={joining[court.id] || isFull}
+                        className={`flex-1 font-body text-label-md py-3 rounded-lg uppercase font-black active:scale-95 transition-all disabled:opacity-50 ${
+                          isJoined
+                            ? "bg-surface-variant text-on-surface hover:brightness-110"
+                            : "bg-primary-container text-on-primary-container hover:brightness-110"
+                        }`}
+                      >
+                        {joining[court.id]
+                          ? "..."
+                          : isFull
+                          ? "Full"
+                          : isJoined
+                          ? "Leave Pick-up"
+                          : "Join Pick-up"}
+                      </button>
+                      <button
+                        onClick={() => setModalCourt(court)}
+                        disabled={checkingIn[court.id]}
+                        aria-label="Update status"
+                        className="w-12 border border-secondary/30 flex items-center justify-center rounded-lg hover:bg-surface-variant transition-colors text-on-surface disabled:opacity-60"
+                      >
+                        <Icon name="local_fire_department" />
+                      </button>
+                      <button
+                        onClick={() => toggleFavourite(court.id)}
+                        aria-label={favouriteIds.has(court.id) ? "Remove from favourites" : "Add to favourites"}
+                        className={`w-12 rounded-lg border transition-colors flex items-center justify-center ${
+                          favouriteIds.has(court.id)
+                            ? "border-primary bg-primary-container text-on-primary-container"
+                            : "border-secondary/30 text-secondary hover:text-primary"
+                        }`}
+                      >
+                        <Icon name="favorite" filled={favouriteIds.has(court.id)} />
+                      </button>
+                    </div>
+                    {checkInMessage[court.id] && (
+                      <p className="font-body text-label-sm text-secondary">
+                        {checkInMessage[court.id]}
+                      </p>
+                    )}
                   </div>
                 </article>
               );

@@ -20,6 +20,10 @@ export default function AddCourtPage() {
   const marker = useRef<maplibregl.Marker | null>(null);
 
   const [name, setName] = useState("");
+  const [courtType, setCourtType] = useState<"indoor" | "outdoor">("outdoor");
+  const [capacity, setCapacity] = useState("");
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [address, setAddress] = useState("");
   const [addressSuggestions, setAddressSuggestions] = useState<GeocodeResult[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
@@ -83,6 +87,21 @@ export default function AddCourtPage() {
 
     return () => window.clearTimeout(timer);
   }, [address]);
+
+  // Release the local preview URL when it's replaced or the page unmounts.
+  useEffect(() => {
+    return () => {
+      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+    };
+  }, [imagePreviewUrl]);
+
+  const handleImageSelect = (file: File | null) => {
+    setImageFile(file);
+    setImagePreviewUrl((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return file ? URL.createObjectURL(file) : null;
+    });
+  };
 
   const placeMarker = (lngVal: number, latVal: number) => {
     if (!map.current) return;
@@ -163,6 +182,8 @@ export default function AddCourtPage() {
     e.preventDefault();
     setError("");
 
+    if (!user) return;
+
     if (!name.trim()) {
       setError("Give the court a name.");
       return;
@@ -174,6 +195,23 @@ export default function AddCourtPage() {
 
     setSubmitting(true);
 
+    let uploadedImageUrl: string | null = null;
+    if (imageFile) {
+      const ext = imageFile.name.split(".").pop() || "jpg";
+      const path = `${user.id}/${Date.now()}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from("court-images")
+        .upload(path, imageFile);
+
+      if (uploadError) {
+        setSubmitting(false);
+        setError(`Image upload failed: ${uploadError.message}`);
+        return;
+      }
+
+      uploadedImageUrl = supabase.storage.from("court-images").getPublicUrl(path).data.publicUrl;
+    }
+
     // The deployed courts table stores a GeoJSON point in its JSONB location
     // column. Keeping this shape is what lets the map read the new pin.
     const { error: insertError } = await supabase.from("courts").insert({
@@ -181,6 +219,9 @@ export default function AddCourtPage() {
       address: address.trim() || null,
       location: { type: "Point", coordinates: [lng, lat] },
       status: "Empty",
+      court_type: courtType,
+      capacity: capacity.trim() ? Number(capacity) : null,
+      image_url: uploadedImageUrl,
     });
 
     setSubmitting(false);
@@ -235,6 +276,66 @@ export default function AddCourtPage() {
                 onChange={(e) => setName(e.target.value)}
                 className="w-full bg-surface-container-high border border-surface-variant rounded-lg px-4 py-3 text-on-surface font-body outline-none focus:border-primary-container"
               />
+            </div>
+
+            <div className="flex gap-4">
+              <div className="flex-1">
+                <label className="font-body text-label-sm text-secondary uppercase block mb-1">Court type</label>
+                <select
+                  value={courtType}
+                  onChange={(e) => setCourtType(e.target.value as "indoor" | "outdoor")}
+                  className="w-full bg-surface-container-high border border-surface-variant rounded-lg px-4 py-3 text-on-surface font-body outline-none focus:border-primary-container"
+                >
+                  <option value="outdoor">Outdoor</option>
+                  <option value="indoor">Indoor</option>
+                </select>
+              </div>
+              <div className="flex-1">
+                <label className="font-body text-label-sm text-secondary uppercase block mb-1">Capacity (optional)</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={capacity}
+                  onChange={(e) => setCapacity(e.target.value)}
+                  placeholder="e.g. 10"
+                  className="w-full bg-surface-container-high border border-surface-variant rounded-lg px-4 py-3 text-on-surface font-body outline-none focus:border-primary-container"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="font-body text-label-sm text-secondary uppercase block mb-1">Court photo (optional)</label>
+              <div className="flex items-center gap-4">
+                {imagePreviewUrl && (
+                  <img
+                    src={imagePreviewUrl}
+                    alt="Court preview"
+                    className="w-16 h-16 rounded-lg object-cover border border-surface-variant shrink-0"
+                  />
+                )}
+                <div className="flex-1 flex gap-2">
+                  <label className="flex-1 flex items-center justify-center gap-2 bg-surface-container-high border border-surface-variant rounded-lg px-4 py-3 text-on-surface font-body text-label-sm uppercase font-bold cursor-pointer hover:border-primary-container transition-colors">
+                    <Icon name="upload" className="text-lg!" />
+                    {imageFile ? "Change photo" : "Upload photo"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleImageSelect(e.target.files?.[0] ?? null)}
+                      className="hidden"
+                    />
+                  </label>
+                  {imageFile && (
+                    <button
+                      type="button"
+                      onClick={() => handleImageSelect(null)}
+                      aria-label="Remove photo"
+                      className="w-12 rounded-lg border border-surface-variant text-secondary hover:text-primary hover:border-primary-container transition-colors flex items-center justify-center"
+                    >
+                      <Icon name="close" />
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div>
