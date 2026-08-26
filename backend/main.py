@@ -2,6 +2,7 @@ import os
 from datetime import datetime, timezone
 from typing import Optional
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from supabase import create_client
 from dotenv import load_dotenv
@@ -19,6 +20,21 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = FastAPI()
+
+# The Next.js dev server runs on a different origin (different port), so
+# without this the browser's own CORS preflight blocks every /checkin call
+# before it ever reaches this process -- it fails as a generic network
+# error client-side, not as a 403/validation error. Override with
+# FRONTEND_URL in backend/.env for a non-default dev port or a deployed
+# frontend origin.
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[FRONTEND_URL],
+    allow_methods=["POST"],
+    allow_headers=["Content-Type"],
+)
 
 # Model for incoming check-in requests
 class CheckInRequest(BaseModel):

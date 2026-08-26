@@ -44,7 +44,9 @@ uvicorn main:app --reload --port 8000
 ```
 
 Backend needs `backend/.env` with `SUPABASE_URL` and `SUPABASE_KEY`; it
-raises `ValueError` on import if either is missing.
+raises `ValueError` on import if either is missing. Optional `FRONTEND_URL`
+(defaults to `http://localhost:3000`) sets the allowed CORS origin — see the
+architecture section below.
 
 There's no automated test suite and no migration tool. `migrations/*.sql`
 must be applied by hand to the Supabase project's SQL editor, in filename
@@ -84,8 +86,14 @@ policy added in `migrations/20260826_expiring_checkin_status.sql`.
 **Known gap:** the backend does not validate the caller's Supabase JWT — the
 browser just passes a `user_id` in the POST body. Any check-in security work
 should authenticate server-side and derive the user id from the token instead.
-There's also no CORS configuration, so a separately hosted frontend will need
-one added before it can call the API.
+
+`backend/main.py` allows CORS from `FRONTEND_URL` (`backend/.env`, defaults
+to `http://localhost:3000`) — without it, every `/checkin` call fails as a
+generic browser network error (`TypeError: Failed to fetch`), not as a
+403/validation error, because the preflight `OPTIONS` request has nowhere
+to get an `Access-Control-Allow-Origin` header from. Set `FRONTEND_URL` to
+match wherever the frontend is actually served if it's not the default dev
+port.
 
 ## Database
 
